@@ -1,4 +1,4 @@
-# DS-2000
+# DS2000
 
 A professional, open-source desktop application for Discord integration and hardware device control. Built with Rust, Tauri and html&css.
 
