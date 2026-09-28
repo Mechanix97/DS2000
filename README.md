@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/img/ds2000-logo.webp" alt="DS2000" width="150">
+</p>
+
 # DS2000
 
 A professional, open-source desktop application for Discord integration and hardware device control. Built with Rust, Tauri and html&css.
