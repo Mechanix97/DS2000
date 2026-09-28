@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**DS-2000** is a professional, open-source Tauri-based desktop application for managing Discord integration and serial device communication. The application is designed with enterprise-grade code quality, maintainability, and internationalization (i18n) support in mind.
+**DS2000** is a professional, open-source Tauri-based desktop application for managing Discord integration and serial device communication. The application is designed with enterprise-grade code quality, maintainability, and internationalization (i18n) support in mind.
 
 **Core Features:**
 - Discord bot-like interface with system tray support
@@ -362,7 +362,7 @@ RUST_LOG=serial=debug,discord=debug npm run tauri dev
 
 ### Running Tests
 
-Tests that need a running Discord client or a physical DS-2000 device are marked `#[ignore]` so
+Tests that need a running Discord client or a physical DS2000 device are marked `#[ignore]` so
 that `cargo test` stays green in CI. Run them explicitly with `cargo test -- --ignored`.
 
 ```bash
