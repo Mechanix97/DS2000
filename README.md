@@ -50,10 +50,10 @@ A professional, open-source desktop application for Discord integration and hard
 
 ### From Releases (Recommended for Users)
 
-1. Download the latest release from the [Releases](https://github.com/Mechanix97/DS-2000/releases) page
+1. Download the latest release from the [Releases](https://github.com/Mechanix97/DS2000/releases) page
 2. Download the `.msi` installer (Windows) or appropriate package for your OS
 3. Run the installer and follow the on-screen instructions
-4. Launch DS-2000 from your Start Menu or Applications
+4. Launch DS2000 from your Start Menu or Applications
 
 ### From Source (For Developers)
 
@@ -70,13 +70,13 @@ On first launch, you'll need to configure:
 
 ### 2. Discord Integration
 
-1. DS-2000 will automatically connect to discord if the developer credentials are setted.
+1. DS2000 will automatically connect to discord if the developer credentials are setted.
 2. Authenticate with your Discord account in the browser window
 3. Once connected, your status will appear in the interface
 
 ### 3. Hardware Control
 
-1. Connect your DS-2000 device via USB
+1. Connect your DS2000 device via USB
 2. Go to **RGB** tab
 3. Select lighting mode: Cycling, Breathing, or Fixed
 4. Adjust brightness and colors
@@ -167,8 +167,8 @@ Click to toggle. Discord status updates automatically.
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/Mechanix97/DS-2000.git
-   cd DS-2000
+   git clone https://github.com/Mechanix97/DS2000.git
+   cd DS2000
    ```
 
 2. **Install dependencies**
@@ -221,7 +221,7 @@ RUST_LOG=debug npm run tauri dev
 ### Project Structure
 
 ```
-DS-2000/
+DS2000/
 ├── README.md                        # This file
 ├── CLAUDE.md                        # Development guidelines (for Claude Code)
 ├── Cargo.toml                       # Rust workspace configuration
@@ -302,10 +302,10 @@ cargo test serial_message::tests
 
 ## Related Projects
 
-DS-2000 is part of an integrated hardware and software ecosystem:
+DS2000 is part of an integrated hardware and software ecosystem:
 
-- **[DS-2000 Firmware](https://github.com/Mechanix97/DS-2000-Firmware)**: Embedded firmware for the hardware device
-- **[DS-2000 PCB](https://github.com/Mechanix97/DS-2000-PCB)**: KiCAD schematics and PCB design files
+- **[DS2000 Firmware](https://github.com/Mechanix97/DS2000-Firmware)**: Embedded firmware for the hardware device
+- **[DS2000 PCB](https://github.com/Mechanix97/DS2000-PCB)**: KiCAD schematics and PCB design files
 
 All projects are licensed under **GPL v3** to ensure the entire ecosystem remains open-source.
 
@@ -343,15 +343,15 @@ This project is licensed under the **GNU General Public License v3.0** - see the
 - ✅ **Donations accepted**: You can accept voluntary donations for your work
 - ✅ **Attribution required**: Derivatives must credit original work
 
-This ensures DS-2000 remains free and open for the entire community.
+This ensures DS2000 remains free and open for the entire community.
 
 ## Support
 
 ### Getting Help
 
 - **Documentation**: See [CLAUDE.md](CLAUDE.md) for development documentation
-- **Issues**: Check [GitHub Issues](https://github.com/Mechanix97/DS-2000/issues) for known problems
-- **Discussions**: Join our [GitHub Discussions](https://github.com/Mechanix97/DS-2000/discussions)
+- **Issues**: Check [GitHub Issues](https://github.com/Mechanix97/DS2000/issues) for known problems
+- **Discussions**: Join our [GitHub Discussions](https://github.com/Mechanix97/DS2000/discussions)
 - **Discord**: Join our community on [Discord](https://discord.gg/VtbFAGJe86)
 
 ### Reporting Issues
@@ -372,7 +372,7 @@ Have an idea? Open a GitHub issue with the `enhancement` label and describe:
 
 ### Support the Project
 
-If you find DS-2000 useful, consider supporting the development:
+If you find DS2000 useful, consider supporting the development:
 
 - 💰 **Donate**: *Donation links coming soon*
 - ⭐ **Star the repository** to show your support
@@ -410,7 +410,7 @@ If you find DS-2000 useful, consider supporting the development:
 
 ## Disclaimer
 
-DS-2000 is provided as-is for personal use. Users are responsible for:
+DS2000 is provided as-is for personal use. Users are responsible for:
 - Complying with Discord's Terms of Service
 - Proper handling of authentication credentials
 - Safe use of hardware controls
