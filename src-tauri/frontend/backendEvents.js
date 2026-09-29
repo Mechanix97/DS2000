@@ -6,8 +6,8 @@ var mute = false;
 var deaf = false;
 var discordConnected = false;
 // Mirrors the backend's SerialStatusPayload: `state` is one of connected, disconnected,
-// firmwareOutdated or appOutdated, and `firmware` is the device's version when it reported one.
-var serialStatus = { state: 'disconnected', firmware: null };
+// firmwareOutdated or appOutdated; `firmware` and `board` are what the device reported, if anything.
+var serialStatus = { state: 'disconnected', firmware: null, board: null };
 
 const micIcon = document.getElementById('mic-icon');
 const headsetIcon = document.getElementById('headset-icon');
@@ -71,7 +71,9 @@ function updateConnectionStatus() {
   // An outdated device is worth identifying too: that is exactly when a bug report needs it.
   if (deviceFirmware) {
     if (serialStatus.firmware) {
-      deviceFirmware.textContent = serialStatus.firmware;
+      deviceFirmware.textContent = serialStatus.board
+        ? `${serialStatus.firmware} (${serialStatus.board})`
+        : serialStatus.firmware;
     } else if (serialStatus.state === 'disconnected') {
       deviceFirmware.textContent = '—';
     } else {
@@ -118,7 +120,11 @@ listen('SERIAL_CONNECTION_STATUS_EVENT', event => {
     console.error('Unexpected serial status payload:', payload);
     return;
   }
-  serialStatus = { state: payload.state, firmware: payload.firmware ?? null };
+  serialStatus = {
+    state: payload.state,
+    firmware: payload.firmware ?? null,
+    board: payload.board ?? null,
+  };
   updateConnectionStatus();
 });
 

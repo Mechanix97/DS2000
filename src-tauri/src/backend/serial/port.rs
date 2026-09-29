@@ -6,7 +6,7 @@
 //! to 100 ms each time whether or not the device had said anything.
 
 use super::error::SerialPortError;
-use super::messages::device_info::{DeviceVersion, UNVERSIONED_PROTOCOL};
+use super::messages::device_info::DeviceIdentity;
 use super::messages::hello::HelloMessage;
 use super::serial_message::SerialMessageCodec;
 use super::serial_message::{PROTOCOL_VERSION, SerialMessage};
@@ -53,7 +53,7 @@ pub struct Port {
     _reader_task: Option<Arc<AbortOnDrop>>,
     events: mpsc::UnboundedSender<SerialEvent>,
     /// What the connected device reported in the handshake. `Some` exactly while connected.
-    device: Option<DeviceVersion>,
+    device: Option<DeviceIdentity>,
 }
 
 impl Port {
@@ -163,7 +163,7 @@ impl Port {
     }
 
     /// What the connected device reported in the handshake, or `None` while disconnected.
-    pub fn device(&self) -> Option<DeviceVersion> {
+    pub fn device(&self) -> Option<DeviceIdentity> {
         self.device
     }
 
@@ -186,7 +186,7 @@ impl Port {
 /// A device that does not answer the hello gets one more chance in the pre-COBS framing, so that
 /// firmware from before protocol 1 is reported as out of date instead of being indistinguishable
 /// from no device at all.
-async fn handshake(framed: &mut PortFramed) -> Result<DeviceVersion, SerialPortError> {
+async fn handshake(framed: &mut PortFramed) -> Result<DeviceIdentity, SerialPortError> {
     framed
         .send(SerialMessage::Hello(HelloMessage {}))
         .await
@@ -196,7 +196,7 @@ async fn handshake(framed: &mut PortFramed) -> Result<DeviceVersion, SerialPortE
         })?;
 
     match timeout(HANDSHAKE_TIMEOUT, framed.next()).await {
-        Ok(Some(Ok(Ok(SerialMessage::DeviceInfo(info))))) => Ok(info.device()),
+        Ok(Some(Ok(Ok(SerialMessage::DeviceInfo(info))))) => Ok(info.identity()),
         Ok(Some(Ok(Ok(other)))) => {
             debug!("Handshake answered with {other:?} instead of device info");
             Err(SerialPortError::AuthenticationFailed)
@@ -207,10 +207,7 @@ async fn handshake(framed: &mut PortFramed) -> Result<DeviceVersion, SerialPortE
         }
         Ok(Some(Err(err))) => Err(err),
         Ok(None) => Err(SerialPortError::PortNotConnected),
-        Err(_) if probe_legacy_firmware(framed).await => Ok(DeviceVersion {
-            protocol: UNVERSIONED_PROTOCOL,
-            firmware: None,
-        }),
+        Err(_) if probe_legacy_firmware(framed).await => Ok(DeviceIdentity::unversioned()),
         Err(_) => Err(SerialPortError::TimedOut),
     }
 }
@@ -235,11 +232,13 @@ async fn probe_legacy_firmware(framed: &mut PortFramed) -> bool {
         .any(|window| window == LEGACY_REPLY)
 }
 
-/// The firmware version for a log line. Firmware before versioning has none to report.
-fn describe_firmware(device: &DeviceVersion) -> String {
-    device
-        .firmware
-        .map_or_else(|| "unversioned".to_owned(), |version| version.to_string())
+/// The firmware version and board for a log line. Firmware before versioning reports neither.
+fn describe_firmware(device: &DeviceIdentity) -> String {
+    match (device.firmware, device.board) {
+        (Some(version), Some(board)) => format!("{version} on {board}"),
+        (Some(version), None) => version.to_string(),
+        _ => "unversioned".to_owned(),
+    }
 }
 
 /// Awaits frames from the device for as long as the port is open.

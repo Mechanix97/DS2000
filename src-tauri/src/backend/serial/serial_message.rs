@@ -8,6 +8,7 @@ use super::framing::{FRAME_DELIMITER, decode_frame, encode_frame};
 use super::messages::button::ButtonMessage;
 use super::messages::device_info::DeviceInfoMessage;
 use super::messages::hello::HelloMessage;
+use super::messages::reboot_to_bootloader::RebootToBootloaderMessage;
 use super::messages::rgb::RGBConfigMessage;
 
 /// Wire format revision this application speaks.
@@ -88,6 +89,7 @@ pub enum SerialMessage {
     Button(ButtonMessage),
     VoiceSettings(VoiceSettingsMessage),
     RGBUpdate(RGBConfigMessage),
+    RebootToBootloader(RebootToBootloaderMessage),
 }
 
 impl SerialMessage {
@@ -98,6 +100,7 @@ impl SerialMessage {
             SerialMessage::Button(_) => ButtonMessage::CODE,
             SerialMessage::VoiceSettings(_) => VoiceSettingsMessage::CODE,
             SerialMessage::RGBUpdate(_) => RGBConfigMessage::CODE,
+            SerialMessage::RebootToBootloader(_) => RebootToBootloaderMessage::CODE,
         }
     }
 
@@ -119,6 +122,9 @@ impl SerialMessage {
             RGBConfigMessage::CODE => {
                 Ok(SerialMessage::RGBUpdate(RGBConfigMessage::decode(payload)?))
             }
+            RebootToBootloaderMessage::CODE => Ok(SerialMessage::RebootToBootloader(
+                RebootToBootloaderMessage::decode(payload)?,
+            )),
             _ => Err(SerialMessageError::MalformedData),
         }
     }
@@ -131,6 +137,7 @@ impl SerialMessage {
             SerialMessage::Button(msg) => msg.encode(buf),
             SerialMessage::VoiceSettings(msg) => msg.encode(buf),
             SerialMessage::RGBUpdate(msg) => msg.encode(buf),
+            SerialMessage::RebootToBootloader(msg) => msg.encode(buf),
         }
     }
 }
@@ -152,13 +159,14 @@ mod tests {
     use super::*;
     use crate::framing::encode_frame;
     use crate::messages::button::{Button, ButtonMessage};
-    use crate::messages::device_info::FirmwareVersion;
+    use crate::messages::device_info::{Board, FirmwareVersion};
     use common::rgb_update::{LedRgb, RGBConfig, RGBMode};
     use tokio_util::codec::{Decoder, Encoder};
 
     fn device_info() -> DeviceInfoMessage {
         DeviceInfoMessage {
             protocol: PROTOCOL_VERSION,
+            board: Board::Rp2350Zero,
             firmware: FirmwareVersion {
                 major: 0,
                 minor: 2,
@@ -189,6 +197,8 @@ mod tests {
     /// Exact wire bytes, shared with the firmware's own tests so the two implementations are
     /// checked against the same vectors rather than only against themselves.
     ///
+    /// Pins docs/PROTOCOL.md, "Reference frames".
+    ///
     /// The hello also has to start with `0x01` and contain no `0xFF`: that is what makes it
     /// harmless to pre-protocol-1 firmware ahead of the legacy probe in `port.rs`.
     #[test]
@@ -200,13 +210,20 @@ mod tests {
         assert_eq!(
             &wire(SerialMessage::DeviceInfo(DeviceInfoMessage {
                 protocol: 1,
+                board: Board::Rp2350Zero,
                 firmware: FirmwareVersion {
                     major: 0,
                     minor: 2,
                     patch: 0,
                 },
             }))[..],
-            [0x03, 0x01, 0x01, 0x02, 0x02, 0x03, 0xAB, 0x8B, 0x00]
+            [0x04, 0x01, 0x01, 0x01, 0x02, 0x02, 0x03, 0xF1, 0x37, 0x00]
+        );
+        assert_eq!(
+            &wire(SerialMessage::RebootToBootloader(
+                RebootToBootloaderMessage {}
+            ))[..],
+            [0x08, 0x05, 0x42, 0x4F, 0x4F, 0x54, 0x87, 0xB0, 0x00]
         );
         assert_eq!(
             &wire(SerialMessage::Button(ButtonMessage {
@@ -220,6 +237,9 @@ mod tests {
     fn every_message_type_survives_a_round_trip() {
         round_trip(SerialMessage::Hello(HelloMessage {}));
         round_trip(SerialMessage::DeviceInfo(device_info()));
+        round_trip(SerialMessage::RebootToBootloader(
+            RebootToBootloaderMessage {},
+        ));
         round_trip(SerialMessage::Button(ButtonMessage {
             button: Button::DeafenButton,
         }));

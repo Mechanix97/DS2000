@@ -1,7 +1,7 @@
 use spawned_concurrency::error::GenServerError;
 use thiserror::Error;
 
-use crate::messages::device_info::DeviceVersion;
+use crate::messages::device_info::DeviceIdentity;
 
 #[derive(Error, Debug)]
 pub enum SerialPortError {
@@ -21,7 +21,7 @@ pub enum SerialPortError {
     AuthenticationFailed,
     /// A DS2000 answered, but speaks a protocol revision this application does not.
     #[error("Device speaks protocol {}, this application speaks {}", .0.protocol, crate::serial_message::PROTOCOL_VERSION)]
-    IncompatibleDevice(DeviceVersion),
+    IncompatibleDevice(DeviceIdentity),
     #[error("Error reading from port")]
     ErrorReadingPort,
     #[error("Message encoding error: {0}")]

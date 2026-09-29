@@ -7,7 +7,7 @@
 use common::rgb_update::RGBConfig;
 use std::path::PathBuf;
 
-use crate::messages::device_info::DeviceVersion;
+use crate::messages::device_info::DeviceIdentity;
 use crate::messages::rgb::RGBConfigMessage;
 use crate::messages::voice_settings::VoiceSettingsMessage;
 
@@ -57,10 +57,10 @@ pub enum OutMessage {
 pub enum DeviceStatus {
     #[default]
     Disconnected,
-    Connected(DeviceVersion),
+    Connected(DeviceIdentity),
     /// A DS2000 answered but speaks another protocol revision, so nothing is exchanged with it.
     /// Reported separately so the user is told to update rather than left seeing "not connected".
-    Incompatible(DeviceVersion),
+    Incompatible(DeviceIdentity),
 }
 
 /// Something worth telling the controller about.
@@ -306,11 +306,8 @@ mod tests {
         )
     }
 
-    fn outdated_device() -> DeviceVersion {
-        DeviceVersion {
-            protocol: crate::messages::device_info::UNVERSIONED_PROTOCOL,
-            firmware: None,
-        }
+    fn outdated_device() -> DeviceIdentity {
+        DeviceIdentity::unversioned()
     }
 
     #[test]

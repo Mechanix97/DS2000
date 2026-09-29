@@ -64,6 +64,8 @@ pub struct SerialStatusPayload {
     pub state: SerialState,
     /// `None` while nothing is attached, and for firmware that predates versioning.
     pub firmware: Option<String>,
+    /// Board the firmware was built for, by name. `None` in the same cases as `firmware`.
+    pub board: Option<String>,
 }
 
 impl From<DeviceStatus> for SerialStatusPayload {
@@ -79,6 +81,7 @@ impl From<DeviceStatus> for SerialStatusPayload {
         Self {
             state,
             firmware: device.firmware.map(|version| version.to_string()),
+            board: device.board.map(|board| board.to_string()),
         }
     }
 }
@@ -354,11 +357,12 @@ impl Coordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial::messages::device_info::{DeviceVersion, FirmwareVersion, UNVERSIONED_PROTOCOL};
+    use serial::messages::device_info::{Board, DeviceIdentity, FirmwareVersion};
 
-    fn device(protocol: u8) -> DeviceVersion {
-        DeviceVersion {
+    fn device(protocol: u8) -> DeviceIdentity {
+        DeviceIdentity {
             protocol,
+            board: Some(Board::Rp2350Zero),
             firmware: Some(FirmwareVersion {
                 major: 0,
                 minor: 2,
@@ -373,17 +377,16 @@ mod tests {
 
         assert_eq!(payload.state, SerialState::Connected);
         assert_eq!(payload.firmware.as_deref(), Some("0.2.1"));
+        assert_eq!(payload.board.as_deref(), Some("RP2350-Zero"));
     }
 
     #[test]
     fn a_mismatch_says_which_side_to_update() {
-        let older = DeviceVersion {
-            protocol: UNVERSIONED_PROTOCOL,
-            firmware: None,
-        };
-        let firmware_outdated = SerialStatusPayload::from(DeviceStatus::Incompatible(older));
+        let firmware_outdated =
+            SerialStatusPayload::from(DeviceStatus::Incompatible(DeviceIdentity::unversioned()));
         assert_eq!(firmware_outdated.state, SerialState::FirmwareOutdated);
         assert_eq!(firmware_outdated.firmware, None);
+        assert_eq!(firmware_outdated.board, None);
 
         let app_outdated =
             SerialStatusPayload::from(DeviceStatus::Incompatible(device(PROTOCOL_VERSION + 1)));
@@ -396,7 +399,11 @@ mod tests {
 
         assert_eq!(
             serde_json::to_value(payload).expect("serialises"),
-            serde_json::json!({ "state": "firmwareOutdated", "firmware": "0.2.1" })
+            serde_json::json!({
+                "state": "firmwareOutdated",
+                "firmware": "0.2.1",
+                "board": "RP2350-Zero",
+            })
         );
     }
 }
