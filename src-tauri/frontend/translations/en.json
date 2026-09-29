@@ -76,12 +76,16 @@
     "developedBy": "Developed by Mechardo Labs",
     "terms": "Terms of service",
     "privacy": "Privacy policy",
-    "updates": "Check for updates (TODO)"
+    "updates": "Check for updates (TODO)",
+    "firmware": "Firmware:",
+    "firmwareUnversioned": "unknown (predates versioning)"
   },
   "status": {
     "discordConnected": "Discord: Connected",
     "discordDisconnected": "Discord: Not connected",
     "serialConnected": "Serial: Connected",
-    "serialDisconnected": "Serial: Not connected"
+    "serialDisconnected": "Serial: Not connected",
+    "serialFirmwareOutdated": "Serial: The device firmware is out of date. Update it to use it with this version of the app.",
+    "serialAppOutdated": "Serial: The device firmware is newer than this app. Update the app to use it."
   }
 }

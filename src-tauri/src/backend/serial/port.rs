@@ -7,8 +7,9 @@
 
 use super::error::SerialPortError;
 use super::messages::ping::PingMessage;
-use super::serial_message::SerialMessage;
+use super::messages::pong::DeviceVersion;
 use super::serial_message::SerialMessageCodec;
+use super::serial_message::{PROTOCOL_VERSION, SerialMessage};
 
 use common::task_guard::AbortOnDrop;
 use futures_util::stream::{SplitSink, SplitStream};
@@ -41,7 +42,8 @@ pub struct Port {
     writer: Option<Arc<Mutex<PortWriter>>>,
     _reader_task: Option<Arc<AbortOnDrop>>,
     events: mpsc::UnboundedSender<SerialEvent>,
-    connected: bool,
+    /// What the connected device reported in the handshake. `Some` exactly while connected.
+    device: Option<DeviceVersion>,
 }
 
 impl Port {
@@ -51,15 +53,18 @@ impl Port {
             writer: None,
             _reader_task: None,
             events,
-            connected: false,
+            device: None,
         }
     }
 
-    /// Opens a port, verifies a DS-2000 is on the other end, and starts reading.
+    /// Opens a port, verifies a DS-2000 speaking this protocol is on the other end, and starts
+    /// reading.
     ///
     /// The handshake runs on the whole framed stream before it is split, so the ping/pong
     /// exchange stays a simple request/response and the reader task only starts once the device
-    /// has proven itself.
+    /// has proven itself. A DS2000 on another protocol revision fails with
+    /// [`SerialPortError::IncompatibleDevice`] and the port is released: frames exchanged with it
+    /// would be misread in both directions.
     pub async fn connect_and_authenticate(
         &mut self,
         port_name: &Path,
@@ -78,7 +83,15 @@ impl Port {
         port.set_rts(true)?;
 
         let mut framed = Framed::new(port, SerialMessageCodec);
-        handshake(&mut framed).await?;
+        let device = handshake(&mut framed).await?;
+        if device.protocol != PROTOCOL_VERSION {
+            warn!(
+                "Port {port_name:?} has a DS2000 on protocol {} (firmware {}), this application                  speaks {PROTOCOL_VERSION}",
+                device.protocol,
+                describe_firmware(&device),
+            );
+            return Err(SerialPortError::IncompatibleDevice(device));
+        }
 
         let (writer, reader) = framed.split();
         let reader_task = tokio::spawn(read_loop(reader, self.events.clone()));
@@ -86,13 +99,19 @@ impl Port {
         self.writer = Some(Arc::new(Mutex::new(writer)));
         self._reader_task = Some(AbortOnDrop::new(reader_task));
         self.name = port_name.to_str().map(str::to_owned);
-        self.connected = true;
+        self.device = Some(device);
 
-        info!("Serial port {port_name:?} connected");
+        info!(
+            "Serial port {port_name:?} connected, firmware {}",
+            describe_firmware(&device)
+        );
         Ok(())
     }
 
     /// Tries every available port until one answers the handshake.
+    ///
+    /// When nothing usable is found but a DS2000 on the wrong protocol was, that is what gets
+    /// reported: "no device" would send the user looking for a cable fault instead of an update.
     pub async fn auto_connect(
         &mut self,
         baudrate: u32,
@@ -101,21 +120,23 @@ impl Port {
         let mut available_ports = available_ports()?;
         available_ports.sort();
 
+        let mut incompatible = None;
         for path in available_ports {
             debug!("Trying serial port {path:?}");
-            if self
+            match self
                 .connect_and_authenticate(&path, baudrate, timeout)
                 .await
-                .is_ok()
             {
-                return Ok(());
+                Ok(()) => return Ok(()),
+                Err(err @ SerialPortError::IncompatibleDevice(_)) => incompatible = Some(err),
+                Err(_) => {}
             }
         }
-        Err(SerialPortError::PortNotConnected)
+        Err(incompatible.unwrap_or(SerialPortError::PortNotConnected))
     }
 
     pub async fn disconnect(&mut self) {
-        if self.connected {
+        if self.is_connected() {
             if let Some(name) = &self.name {
                 info!("Serial port {name} disconnected");
             }
@@ -124,11 +145,16 @@ impl Port {
         self.writer = None;
         self._reader_task = None;
         self.name = None;
-        self.connected = false;
+        self.device = None;
     }
 
     pub fn is_connected(&self) -> bool {
-        self.connected
+        self.device.is_some()
+    }
+
+    /// What the connected device reported in the handshake, or `None` while disconnected.
+    pub fn device(&self) -> Option<DeviceVersion> {
+        self.device
     }
 
     pub async fn send_message(&self, message: &SerialMessage) -> Result<(), SerialPortError> {
@@ -140,11 +166,12 @@ impl Port {
     }
 }
 
-/// Confirms a DS-2000 is on the other end by exchanging ping/pong.
+/// Confirms a DS-2000 is on the other end by exchanging ping/pong, and returns what it reported.
 ///
 /// Without it, `auto_connect` would happily latch onto any serial device on the machine — a
-/// printer, an Arduino, a Bluetooth adapter.
-async fn handshake(framed: &mut PortFramed) -> Result<(), SerialPortError> {
+/// printer, an Arduino, a Bluetooth adapter. Whether the reported protocol is one this application
+/// speaks is for the caller to decide.
+async fn handshake(framed: &mut PortFramed) -> Result<DeviceVersion, SerialPortError> {
     framed
         .send(SerialMessage::Ping(PingMessage {}))
         .await
@@ -154,7 +181,7 @@ async fn handshake(framed: &mut PortFramed) -> Result<(), SerialPortError> {
         })?;
 
     match timeout(HANDSHAKE_TIMEOUT, framed.next()).await {
-        Ok(Some(Ok(SerialMessage::Pong(_)))) => Ok(()),
+        Ok(Some(Ok(SerialMessage::Pong(pong)))) => Ok(pong.device),
         Ok(Some(Ok(other))) => {
             debug!("Handshake answered with {other:?} instead of a pong");
             Err(SerialPortError::AuthenticationFailed)
@@ -166,6 +193,13 @@ async fn handshake(framed: &mut PortFramed) -> Result<(), SerialPortError> {
         Ok(None) => Err(SerialPortError::PortNotConnected),
         Err(_) => Err(SerialPortError::TimedOut),
     }
+}
+
+/// The firmware version for a log line. Firmware before versioning has none to report.
+fn describe_firmware(device: &DeviceVersion) -> String {
+    device
+        .firmware
+        .map_or_else(|| "unversioned".to_owned(), |version| version.to_string())
 }
 
 /// Awaits frames from the device for as long as the port is open.

@@ -5,12 +5,22 @@ import { t, onLanguageChange } from './i18n.js'
 var mute = false;
 var deaf = false;
 var discordConnected = false;
-var serialConnected = false;
+// Mirrors the backend's SerialStatusPayload: `state` is one of connected, disconnected,
+// firmwareOutdated or appOutdated, and `firmware` is the device's version when it reported one.
+var serialStatus = { state: 'disconnected', firmware: null };
 
 const micIcon = document.getElementById('mic-icon');
 const headsetIcon = document.getElementById('headset-icon');
 const discordStatus = document.getElementById('discord-status');
-const serialStatus = document.getElementById('serial-status');
+const serialStatusLabel = document.getElementById('serial-status');
+const deviceFirmware = document.getElementById('device-firmware');
+
+const SERIAL_STATUS = {
+  connected: { key: 'status.serialConnected', className: 'connected' },
+  disconnected: { key: 'status.serialDisconnected', className: 'disconnected' },
+  firmwareOutdated: { key: 'status.serialFirmwareOutdated', className: 'incompatible' },
+  appOutdated: { key: 'status.serialAppOutdated', className: 'incompatible' },
+};
 
 const rgbModeSelector = document.getElementById('mode-selector');
 const brightnessSlider = document.getElementById('brightness-slider');
@@ -52,14 +62,20 @@ function updateConnectionStatus() {
     }
   }
   // Update Serial status
-  if (serialStatus) {
-    serialStatus.classList.remove('connected', 'disconnected');
-    if (serialConnected) {
-      serialStatus.textContent = t('status.serialConnected');
-      serialStatus.classList.add('connected');
+  if (serialStatusLabel) {
+    const shown = SERIAL_STATUS[serialStatus.state] ?? SERIAL_STATUS.disconnected;
+    serialStatusLabel.classList.remove('connected', 'disconnected', 'incompatible');
+    serialStatusLabel.textContent = t(shown.key);
+    serialStatusLabel.classList.add(shown.className);
+  }
+  // An outdated device is worth identifying too: that is exactly when a bug report needs it.
+  if (deviceFirmware) {
+    if (serialStatus.firmware) {
+      deviceFirmware.textContent = serialStatus.firmware;
+    } else if (serialStatus.state === 'disconnected') {
+      deviceFirmware.textContent = '—';
     } else {
-      serialStatus.textContent = t('status.serialDisconnected');
-      serialStatus.classList.add('disconnected');
+      deviceFirmware.textContent = t('about.firmwareUnversioned');
     }
   }
 }
@@ -97,7 +113,12 @@ listen('DISCORD_CONNECTION_STATUS_EVENT', event => {
 });
 
 listen('SERIAL_CONNECTION_STATUS_EVENT', event => {
-  serialConnected = Boolean(event.payload);
+  const payload = event.payload;
+  if (!payload || typeof payload !== 'object' || !(payload.state in SERIAL_STATUS)) {
+    console.error('Unexpected serial status payload:', payload);
+    return;
+  }
+  serialStatus = { state: payload.state, firmware: payload.firmware ?? null };
   updateConnectionStatus();
 });
 

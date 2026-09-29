@@ -29,6 +29,7 @@
     --brand-active: #3c45a5;
     --green: #23a55a;
     --red: #f23f43;
+    --yellow: #f0b232;
 
     --text-strong: #f2f3f5;
     --text: #dbdee1;
@@ -1078,6 +1079,10 @@ select:focus {
 
 .connection-status .disconnected {
     color: var(--red);
+}
+
+.connection-status .incompatible {
+    color: var(--yellow);
 }
 
 /* ===========================================================================

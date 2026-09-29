@@ -9,6 +9,16 @@ use super::messages::ping::PingMessage;
 use super::messages::pong::PongMessage;
 use super::messages::rgb::RGBConfigMessage;
 
+/// Wire format revision this application speaks.
+///
+/// The device reports its own in the pong, and a mismatch refuses the connection instead of
+/// exchanging frames the other side would misread. Bump it with every change to the framing, a
+/// message code or a payload layout, and bump the firmware's `PROTOCOL_VERSION` with it.
+///
+/// Revision 1 is the first to report versions at all; firmware before it is
+/// [`crate::messages::pong::UNVERSIONED_PROTOCOL`].
+pub const PROTOCOL_VERSION: u8 = 1;
+
 pub struct SerialMessageCodec;
 
 impl Decoder for SerialMessageCodec {
@@ -107,8 +117,21 @@ mod tests {
     use super::*;
     use crate::messages::button::{Button, ButtonMessage};
     use crate::messages::ping::PingMessage;
-    use crate::messages::pong::PongMessage;
+    use crate::messages::pong::{DeviceVersion, FirmwareVersion, PongMessage};
     use tokio_util::codec::{Decoder, Encoder};
+
+    fn pong() -> PongMessage {
+        PongMessage {
+            device: DeviceVersion {
+                protocol: PROTOCOL_VERSION,
+                firmware: Some(FirmwareVersion {
+                    major: 0,
+                    minor: 2,
+                    patch: 0,
+                }),
+            },
+        }
+    }
 
     fn round_trip(message: SerialMessage) {
         let mut buffer = BytesMut::new();
@@ -128,7 +151,13 @@ mod tests {
     #[test]
     fn every_message_type_survives_a_round_trip() {
         round_trip(SerialMessage::Ping(PingMessage {}));
-        round_trip(SerialMessage::Pong(PongMessage {}));
+        round_trip(SerialMessage::Pong(pong()));
+        round_trip(SerialMessage::Pong(PongMessage {
+            device: DeviceVersion {
+                protocol: crate::messages::pong::UNVERSIONED_PROTOCOL,
+                firmware: None,
+            },
+        }));
         round_trip(SerialMessage::Button(ButtonMessage {
             button: Button::DeafenButton,
         }));
@@ -163,7 +192,7 @@ mod tests {
             .encode(SerialMessage::Ping(PingMessage {}), &mut buffer)
             .expect("encodes");
         SerialMessageCodec
-            .encode(SerialMessage::Pong(PongMessage {}), &mut buffer)
+            .encode(SerialMessage::Pong(pong()), &mut buffer)
             .expect("encodes");
 
         assert_eq!(
@@ -172,7 +201,7 @@ mod tests {
         );
         assert_eq!(
             SerialMessageCodec.decode(&mut buffer).unwrap().unwrap(),
-            SerialMessage::Pong(PongMessage {})
+            SerialMessage::Pong(pong())
         );
         assert!(buffer.is_empty());
     }
@@ -183,6 +212,23 @@ mod tests {
         buffer.extend_from_slice(&[0x7E, 0xFF]);
 
         assert!(SerialMessageCodec.decode(&mut buffer).is_err());
+    }
+
+    /// The case the versioned pong exists for: a frame cut short must not pass for a different
+    /// version, and the stream has to carry on with the next frame afterwards.
+    #[test]
+    fn a_truncated_pong_is_rejected_and_the_next_frame_still_decodes() {
+        let mut buffer = BytesMut::new();
+        buffer.extend_from_slice(&[PongMessage::CODE, PROTOCOL_VERSION, 0, 0xFF]);
+        SerialMessageCodec
+            .encode(SerialMessage::Ping(PingMessage {}), &mut buffer)
+            .expect("encodes");
+
+        assert!(SerialMessageCodec.decode(&mut buffer).is_err());
+        assert_eq!(
+            SerialMessageCodec.decode(&mut buffer).unwrap().unwrap(),
+            SerialMessage::Ping(PingMessage {})
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@
 use common::rgb_update::RGBConfig;
 use std::path::PathBuf;
 
+use crate::messages::pong::DeviceVersion;
 use crate::messages::rgb::RGBConfigMessage;
 use crate::messages::voice_settings::VoiceSettingsMessage;
 
@@ -51,6 +52,17 @@ pub enum OutMessage {
     SerialPortStatus(bool),
 }
 
+/// Whether a usable device is attached, as far as the application can tell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DeviceStatus {
+    #[default]
+    Disconnected,
+    Connected(DeviceVersion),
+    /// A DS2000 answered but speaks another protocol revision, so nothing is exchanged with it.
+    /// Reported separately so the user is told to update rather than left seeing "not connected".
+    Incompatible(DeviceVersion),
+}
+
 /// Something worth telling the controller about.
 ///
 /// Emitted as it happens rather than queued for a poller, so a button press reaches Discord
@@ -58,7 +70,7 @@ pub enum OutMessage {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum SerialWorkerEvent {
     Message(SerialMessage),
-    ConnectionChanged { connected: bool },
+    StatusChanged(DeviceStatus),
 }
 
 #[derive(Clone)]
@@ -68,8 +80,8 @@ pub struct SerialPortState {
     timeout: Duration,
     /// Where frames and connection changes are announced. The controller listens here.
     observer: mpsc::UnboundedSender<SerialWorkerEvent>,
-    /// Last connection state announced, so `ConnectionChanged` really means changed.
-    announced_connected: bool,
+    /// Last status announced, so `StatusChanged` really means changed.
+    announced: DeviceStatus,
     reconnect_backoff: Duration,
     /// Guards against several reconnect timers piling up, which would defeat the backoff.
     reconnect_scheduled: bool,
@@ -89,7 +101,7 @@ impl SerialPortState {
             baudrate,
             timeout,
             observer,
-            announced_connected: false,
+            announced: DeviceStatus::Disconnected,
             reconnect_backoff: RECONNECT_BACKOFF_MIN,
             reconnect_scheduled: false,
             shutdown: false,
@@ -124,16 +136,22 @@ impl SerialPortState {
         self.reconnect_backoff = (self.reconnect_backoff * 2).min(RECONNECT_BACKOFF_MAX);
     }
 
-    /// Announces a connection transition, once per transition.
-    fn announce_connection(&mut self) {
-        let connected = self.port.is_connected();
-        if connected == self.announced_connected {
+    /// Announces a status transition, once per transition.
+    fn announce(&mut self, status: DeviceStatus) {
+        if status == self.announced {
             return;
         }
-        self.announced_connected = connected;
-        let _ = self
-            .observer
-            .send(SerialWorkerEvent::ConnectionChanged { connected });
+        self.announced = status;
+        let _ = self.observer.send(SerialWorkerEvent::StatusChanged(status));
+    }
+
+    /// Announces whatever the port currently reports.
+    fn announce_port_status(&mut self) {
+        let status = self
+            .port
+            .device()
+            .map_or(DeviceStatus::Disconnected, DeviceStatus::Connected);
+        self.announce(status);
     }
 }
 
@@ -180,13 +198,23 @@ impl GenServer for SerialPortState {
                 if !connected
                     && let Err(err) = self.port.auto_connect(self.baudrate, self.timeout).await
                 {
-                    debug!("No DS-2000 found on any serial port: {err}");
+                    // An incompatible device keeps being retried like an absent one, so flashing
+                    // new firmware is picked up without restarting the application.
+                    match err {
+                        SerialPortError::IncompatibleDevice(device) => {
+                            self.announce(DeviceStatus::Incompatible(device));
+                        }
+                        err => {
+                            debug!("No DS-2000 found on any serial port: {err}");
+                            self.announce(DeviceStatus::Disconnected);
+                        }
+                    }
                     self.schedule_reconnect(handle);
                     return CastResponse::NoReply(self);
                 }
 
                 self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
-                self.announce_connection();
+                self.announce_port_status();
                 CastResponse::NoReply(self)
             }
 
@@ -199,7 +227,7 @@ impl GenServer for SerialPortState {
             InMessage::Serial(SerialEvent::Disconnected) => {
                 info!("Serial device disconnected, will try to reconnect");
                 self.port.disconnect().await;
-                self.announce_connection();
+                self.announce_port_status();
                 self.schedule_reconnect(handle);
                 CastResponse::NoReply(self)
             }
@@ -269,7 +297,7 @@ mod tests {
                 baudrate: 115200,
                 timeout: Duration::from_millis(1000),
                 observer,
-                announced_connected: false,
+                announced: DeviceStatus::Disconnected,
                 reconnect_backoff: RECONNECT_BACKOFF_MIN,
                 reconnect_scheduled: false,
                 shutdown: false,
@@ -278,23 +306,37 @@ mod tests {
         )
     }
 
+    fn outdated_device() -> DeviceVersion {
+        DeviceVersion {
+            protocol: crate::messages::pong::UNVERSIONED_PROTOCOL,
+            firmware: None,
+        }
+    }
+
     #[test]
-    fn a_connection_change_is_announced_once_per_transition() {
+    fn a_status_change_is_announced_once_per_transition() {
         let (mut state, mut observed) = state();
 
         // Still disconnected, so there is nothing to announce.
-        state.announce_connection();
+        state.announce_port_status();
         assert!(observed.try_recv().is_err());
 
-        state.announced_connected = true;
-        state.announce_connection();
-
+        state.announce(DeviceStatus::Incompatible(outdated_device()));
         assert_eq!(
             observed.try_recv().expect("an announcement"),
-            SerialWorkerEvent::ConnectionChanged { connected: false }
+            SerialWorkerEvent::StatusChanged(DeviceStatus::Incompatible(outdated_device()))
         );
-        // A second call with no further change stays quiet.
-        state.announce_connection();
+        // Every retry against the same outdated device reports it again; only the first is news.
+        state.announce(DeviceStatus::Incompatible(outdated_device()));
+        assert!(observed.try_recv().is_err());
+
+        // Unplugging it clears the warning.
+        state.announce_port_status();
+        assert_eq!(
+            observed.try_recv().expect("an announcement"),
+            SerialWorkerEvent::StatusChanged(DeviceStatus::Disconnected)
+        );
+        state.announce_port_status();
         assert!(observed.try_recv().is_err());
     }
 
