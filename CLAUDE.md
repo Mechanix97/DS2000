@@ -219,7 +219,10 @@ Configuration stored in:
 
 - **Default Baudrate**: 115200 (defined in `src-tauri/src/controller/controller.rs:10`)
 - **Default Timeout**: 1000ms (defined in `src-tauri/src/controller/controller.rs:11`)
-- **Message Types**: Ping, Pong, Button, RGB, VoiceSettings
+- **Message Types**: Hello, DeviceInfo, Button, RGB, VoiceSettings
+- **Framing**: COBS with a CRC-16, delimited by `0x00` (`src-tauri/src/backend/serial/framing.rs`).
+  The device reports its protocol and firmware version in `DeviceInfo`; bump `PROTOCOL_VERSION` in
+  `serial_message.rs` together with the firmware's on any wire format change
 - **Device Discovery**: Port enumeration in `src-tauri/src/backend/serial/port.rs`
 
 ## Internationalization (i18n)

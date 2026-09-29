@@ -354,7 +354,7 @@ impl Coordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial::messages::pong::{DeviceVersion, FirmwareVersion, UNVERSIONED_PROTOCOL};
+    use serial::messages::device_info::{DeviceVersion, FirmwareVersion, UNVERSIONED_PROTOCOL};
 
     fn device(protocol: u8) -> DeviceVersion {
         DeviceVersion {

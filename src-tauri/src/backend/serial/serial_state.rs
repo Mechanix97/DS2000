@@ -7,7 +7,7 @@
 use common::rgb_update::RGBConfig;
 use std::path::PathBuf;
 
-use crate::messages::pong::DeviceVersion;
+use crate::messages::device_info::DeviceVersion;
 use crate::messages::rgb::RGBConfigMessage;
 use crate::messages::voice_settings::VoiceSettingsMessage;
 
@@ -308,7 +308,7 @@ mod tests {
 
     fn outdated_device() -> DeviceVersion {
         DeviceVersion {
-            protocol: crate::messages::pong::UNVERSIONED_PROTOCOL,
+            protocol: crate::messages::device_info::UNVERSIONED_PROTOCOL,
             firmware: None,
         }
     }

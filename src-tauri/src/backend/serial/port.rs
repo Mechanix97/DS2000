@@ -6,8 +6,8 @@
 //! to 100 ms each time whether or not the device had said anything.
 
 use super::error::SerialPortError;
-use super::messages::ping::PingMessage;
-use super::messages::pong::DeviceVersion;
+use super::messages::device_info::{DeviceVersion, UNVERSIONED_PROTOCOL};
+use super::messages::hello::HelloMessage;
 use super::serial_message::SerialMessageCodec;
 use super::serial_message::{PROTOCOL_VERSION, SerialMessage};
 
@@ -25,8 +25,18 @@ use tracing::{debug, info, warn};
 type PortFramed = Framed<SerialPort, SerialMessageCodec>;
 type PortWriter = SplitSink<PortFramed, SerialMessage>;
 
-/// How long the device has to answer the handshake ping before the port is rejected.
+/// How long the device has to answer the hello, and separately the legacy probe, before the port
+/// is rejected.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// Asks firmware from before protocol 1 to identify itself, in its own framing.
+///
+/// That firmware ends frames on a bare `0xFF` and answers `00 FF` (its ping) with `01 FF` (its
+/// pong). The leading `0xFF` flushes whatever the hello left in its buffer first; the COBS hello
+/// always starts with `0x01`, which that firmware reads as a pong and ignores, so nothing it acts
+/// on is ever sent.
+const LEGACY_PROBE: [u8; 3] = [0xFF, 0x00, 0xFF];
+const LEGACY_REPLY: [u8; 2] = [0x01, 0xFF];
 
 /// Something the reader task observed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +70,7 @@ impl Port {
     /// Opens a port, verifies a DS-2000 speaking this protocol is on the other end, and starts
     /// reading.
     ///
-    /// The handshake runs on the whole framed stream before it is split, so the ping/pong
+    /// The handshake runs on the whole framed stream before it is split, so the hello / device info
     /// exchange stays a simple request/response and the reader task only starts once the device
     /// has proven itself. A DS2000 on another protocol revision fails with
     /// [`SerialPortError::IncompatibleDevice`] and the port is released: frames exchanged with it
@@ -166,33 +176,63 @@ impl Port {
     }
 }
 
-/// Confirms a DS-2000 is on the other end by exchanging ping/pong, and returns what it reported.
+/// Confirms a DS-2000 is on the other end by exchanging hello / device info, and returns what it
+/// reported.
 ///
 /// Without it, `auto_connect` would happily latch onto any serial device on the machine — a
 /// printer, an Arduino, a Bluetooth adapter. Whether the reported protocol is one this application
 /// speaks is for the caller to decide.
+///
+/// A device that does not answer the hello gets one more chance in the pre-COBS framing, so that
+/// firmware from before protocol 1 is reported as out of date instead of being indistinguishable
+/// from no device at all.
 async fn handshake(framed: &mut PortFramed) -> Result<DeviceVersion, SerialPortError> {
     framed
-        .send(SerialMessage::Ping(PingMessage {}))
+        .send(SerialMessage::Hello(HelloMessage {}))
         .await
         .map_err(|err| {
-            debug!("Could not send the handshake ping: {err}");
+            debug!("Could not send the handshake hello: {err}");
             SerialPortError::AuthenticationFailed
         })?;
 
     match timeout(HANDSHAKE_TIMEOUT, framed.next()).await {
-        Ok(Some(Ok(SerialMessage::Pong(pong)))) => Ok(pong.device),
-        Ok(Some(Ok(other))) => {
-            debug!("Handshake answered with {other:?} instead of a pong");
+        Ok(Some(Ok(Ok(SerialMessage::DeviceInfo(info))))) => Ok(info.device()),
+        Ok(Some(Ok(Ok(other)))) => {
+            debug!("Handshake answered with {other:?} instead of device info");
             Err(SerialPortError::AuthenticationFailed)
         }
-        Ok(Some(Err(err))) => {
+        Ok(Some(Ok(Err(err)))) => {
             debug!("Handshake reply could not be decoded: {err}");
             Err(SerialPortError::AuthenticationFailed)
         }
+        Ok(Some(Err(err))) => Err(err),
         Ok(None) => Err(SerialPortError::PortNotConnected),
+        Err(_) if probe_legacy_firmware(framed).await => Ok(DeviceVersion {
+            protocol: UNVERSIONED_PROTOCOL,
+            firmware: None,
+        }),
         Err(_) => Err(SerialPortError::TimedOut),
     }
+}
+
+/// Whether the port answers [`LEGACY_PROBE`] the way pre-protocol-1 firmware does.
+///
+/// The reply contains no `0x00`, so the codec never completes a frame from it: it stays in the
+/// read buffer, which is where it is looked for once the wait is over.
+async fn probe_legacy_firmware(framed: &mut PortFramed) -> bool {
+    framed.read_buffer_mut().clear();
+    if let Err(err) = framed.get_ref().write_all(&LEGACY_PROBE).await {
+        debug!("Could not send the legacy probe: {err}");
+        return false;
+    }
+
+    // Only the timeout can end this wait usefully; a frame decoded here would be a new-framing
+    // reply, which the hello already had its chance to receive.
+    let _ = timeout(HANDSHAKE_TIMEOUT, framed.next()).await;
+    framed
+        .read_buffer()
+        .windows(LEGACY_REPLY.len())
+        .any(|window| window == LEGACY_REPLY)
 }
 
 /// The firmware version for a log line. Firmware before versioning has none to report.
@@ -212,18 +252,18 @@ async fn read_loop(
 ) {
     while let Some(frame) = reader.next().await {
         match frame {
-            Ok(message) => {
+            Ok(Ok(message)) => {
                 debug!("Serial message received: {message:?}");
                 if events.send(SerialEvent::Message(message)).is_err() {
                     // Nobody is listening any more, so the connection is being torn down.
                     return;
                 }
             }
-            Err(SerialPortError::IoError(err)) => {
-                debug!("Serial port I/O error, dropping the connection: {err}");
+            Ok(Err(err)) => warn!("Discarding a malformed serial frame: {err}"),
+            Err(err) => {
+                debug!("Serial port error, dropping the connection: {err}");
                 break;
             }
-            Err(err) => warn!("Discarding a malformed serial frame: {err}"),
         }
     }
 
@@ -263,7 +303,7 @@ mod tests {
 
         assert!(!port.is_connected());
         assert_eq!(
-            port.send_message(&SerialMessage::Ping(PingMessage {}))
+            port.send_message(&SerialMessage::Hello(HelloMessage {}))
                 .await,
             Err(SerialPortError::PortNotConnected)
         );
@@ -293,8 +333,8 @@ mod tests {
             .expect("a DS-2000 should be connected");
         assert!(port.is_connected());
 
-        // The device answers a ping, which proves the reader task is delivering frames.
-        port.send_message(&SerialMessage::Ping(PingMessage {}))
+        // The device answers a hello, which proves the reader task is delivering frames.
+        port.send_message(&SerialMessage::Hello(HelloMessage {}))
             .await
             .expect("sends");
 
@@ -305,7 +345,7 @@ mod tests {
 
         assert!(matches!(
             event,
-            SerialEvent::Message(SerialMessage::Pong(_))
+            SerialEvent::Message(SerialMessage::DeviceInfo(_))
         ));
 
         port.disconnect().await;

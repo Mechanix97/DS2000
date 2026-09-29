@@ -1,7 +1,7 @@
 use spawned_concurrency::error::GenServerError;
 use thiserror::Error;
 
-use crate::messages::pong::DeviceVersion;
+use crate::messages::device_info::DeviceVersion;
 
 #[derive(Error, Debug)]
 pub enum SerialPortError {
@@ -90,4 +90,12 @@ pub enum SerialMessageError {
 
     #[error("Error invalid message length")]
     InvalidMessageLength,
+
+    /// The COBS encoding does not hold together: bytes were lost or added on the wire.
+    #[error("Error invalid framing")]
+    InvalidFraming,
+
+    /// The frame decoded but its CRC does not match its contents.
+    #[error("Error checksum mismatch")]
+    ChecksumMismatch,
 }
