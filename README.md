@@ -109,6 +109,9 @@ The application automatically scans for connected serial devices at:
 
 Modify these constants in `src-tauri/src/controller/controller.rs` if needed.
 
+The wire format shared with the firmware (framing, messages, handshake and versioning) is
+specified in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+
 ### Application Settings
 
 Settings are stored in the user's home directory:

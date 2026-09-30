@@ -13,8 +13,8 @@ use crate::controller::Controller;
 
 use discord::discord_state::{DiscordVoiceSettings, DiscordWorkerEvent};
 use serial::messages::button::Button;
-use serial::serial_message::SerialMessage;
-use serial::serial_state::SerialWorkerEvent;
+use serial::serial_message::{PROTOCOL_VERSION, SerialMessage};
+use serial::serial_state::{DeviceStatus, SerialWorkerEvent};
 
 use serde::Serialize;
 use std::sync::Arc;
@@ -45,6 +45,47 @@ impl From<DiscordVoiceSettings> for VoiceSettingsPayload {
     }
 }
 
+/// Which side needs updating is all the UI can act on, so that is what the status says rather
+/// than the raw protocol numbers.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SerialState {
+    #[default]
+    Disconnected,
+    Connected,
+    /// The device speaks an older protocol than this application.
+    FirmwareOutdated,
+    /// The device speaks a newer protocol than this application.
+    AppOutdated,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq, Debug, Default)]
+pub struct SerialStatusPayload {
+    pub state: SerialState,
+    /// `None` while nothing is attached, and for firmware that predates versioning.
+    pub firmware: Option<String>,
+    /// Board the firmware was built for, by name. `None` in the same cases as `firmware`.
+    pub board: Option<String>,
+}
+
+impl From<DeviceStatus> for SerialStatusPayload {
+    fn from(status: DeviceStatus) -> Self {
+        let (state, device) = match status {
+            DeviceStatus::Disconnected => return Self::default(),
+            DeviceStatus::Connected(device) => (SerialState::Connected, device),
+            DeviceStatus::Incompatible(device) if device.protocol < PROTOCOL_VERSION => {
+                (SerialState::FirmwareOutdated, device)
+            }
+            DeviceStatus::Incompatible(device) => (SerialState::AppOutdated, device),
+        };
+        Self {
+            state,
+            firmware: device.firmware.map(|version| version.to_string()),
+            board: device.board.map(|board| board.to_string()),
+        }
+    }
+}
+
 /// Everything the UI shows, plus whether it has been told about it.
 ///
 /// Keeping the last known values here is what lets the coordinator skip emitting while the
@@ -52,7 +93,7 @@ impl From<DiscordVoiceSettings> for VoiceSettingsPayload {
 #[derive(Default)]
 struct UiState {
     discord_connected: bool,
-    serial_connected: bool,
+    serial_status: SerialStatusPayload,
     voice_settings: VoiceSettingsPayload,
 }
 
@@ -161,12 +202,15 @@ impl Coordinator {
             SerialWorkerEvent::Message(other) => {
                 debug!("Unhandled serial message: {other:?}");
             }
-            SerialWorkerEvent::ConnectionChanged { connected } => {
-                debug!("Serial connection changed: connected={connected}");
-                self.ui.serial_connected = connected;
-                self.emit(SERIAL_CONNECTION_STATUS_EVENT, connected);
+            SerialWorkerEvent::StatusChanged(status) => {
+                debug!("Serial device status changed: {status:?}");
+                self.ui.serial_status = status.into();
+                self.emit(
+                    SERIAL_CONNECTION_STATUS_EVENT,
+                    self.ui.serial_status.clone(),
+                );
 
-                if connected {
+                if matches!(status, DeviceStatus::Connected(_)) {
                     // A freshly connected device knows nothing, so give it the current state and
                     // the stored lighting configuration.
                     self.push_to_device().await;
@@ -281,7 +325,10 @@ impl Coordinator {
     /// Sends everything the UI shows. Used when the window becomes visible again.
     fn refresh_ui(&self) {
         self.emit(DISCORD_CONNECTION_STATUS_EVENT, self.ui.discord_connected);
-        self.emit(SERIAL_CONNECTION_STATUS_EVENT, self.ui.serial_connected);
+        self.emit(
+            SERIAL_CONNECTION_STATUS_EVENT,
+            self.ui.serial_status.clone(),
+        );
         self.emit(DISCORD_VOICE_SETTINGS_EVENT, self.ui.voice_settings);
     }
 
@@ -304,5 +351,59 @@ impl Coordinator {
             .get_webview_window(MAIN_WINDOW)
             .and_then(|window| window.is_visible().ok())
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial::messages::device_info::{Board, DeviceIdentity, FirmwareVersion};
+
+    fn device(protocol: u8) -> DeviceIdentity {
+        DeviceIdentity {
+            protocol,
+            board: Some(Board::Rp2350Zero),
+            firmware: Some(FirmwareVersion {
+                major: 0,
+                minor: 2,
+                patch: 1,
+            }),
+        }
+    }
+
+    #[test]
+    fn a_connected_device_reports_its_firmware_version() {
+        let payload = SerialStatusPayload::from(DeviceStatus::Connected(device(PROTOCOL_VERSION)));
+
+        assert_eq!(payload.state, SerialState::Connected);
+        assert_eq!(payload.firmware.as_deref(), Some("0.2.1"));
+        assert_eq!(payload.board.as_deref(), Some("RP2350-Zero"));
+    }
+
+    #[test]
+    fn a_mismatch_says_which_side_to_update() {
+        let firmware_outdated =
+            SerialStatusPayload::from(DeviceStatus::Incompatible(DeviceIdentity::unversioned()));
+        assert_eq!(firmware_outdated.state, SerialState::FirmwareOutdated);
+        assert_eq!(firmware_outdated.firmware, None);
+        assert_eq!(firmware_outdated.board, None);
+
+        let app_outdated =
+            SerialStatusPayload::from(DeviceStatus::Incompatible(device(PROTOCOL_VERSION + 1)));
+        assert_eq!(app_outdated.state, SerialState::AppOutdated);
+    }
+
+    #[test]
+    fn the_status_reaches_the_frontend_in_camel_case() {
+        let payload = SerialStatusPayload::from(DeviceStatus::Incompatible(device(0)));
+
+        assert_eq!(
+            serde_json::to_value(payload).expect("serialises"),
+            serde_json::json!({
+                "state": "firmwareOutdated",
+                "firmware": "0.2.1",
+                "board": "RP2350-Zero",
+            })
+        );
     }
 }

@@ -151,6 +151,8 @@ mod tests {
         });
     }
 
+    /// Pins docs/PROTOCOL.md, "RGB (0x04)".
+    ///
     /// Pins the byte order, which is a contract with the firmware rather than an implementation
     /// detail. Speed has to sit at a fixed offset: appending it instead would move it depending on
     /// the mode, and the device would have to decide what the frame is before it could find it.
