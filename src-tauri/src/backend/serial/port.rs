@@ -36,6 +36,14 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(200);
 /// always starts with `0x01`, which that firmware reads as a pong and ignores, so nothing it acts
 /// on is ever sent.
 const LEGACY_PROBE: [u8; 3] = [0xFF, 0x00, 0xFF];
+
+/// Sent before the handshake hello: a bare delimiter, which protocol 1 reads as an empty frame.
+///
+/// It ends whatever the device's receive buffer still holds. Without it, the trailing `0xFF` of a
+/// legacy probe sent to protocol-1 firmware (which happens whenever a hello goes unanswered) stayed
+/// in that buffer, got prepended to the next hello and broke it, which triggered another probe:
+/// the application never connected again until the device was unplugged.
+const HELLO_PREAMBLE: [u8; 1] = [0x00];
 const LEGACY_REPLY: [u8; 2] = [0x01, 0xFF];
 
 /// Something the reader task observed.
@@ -187,6 +195,14 @@ impl Port {
 /// firmware from before protocol 1 is reported as out of date instead of being indistinguishable
 /// from no device at all.
 async fn handshake(framed: &mut PortFramed) -> Result<DeviceIdentity, SerialPortError> {
+    framed
+        .get_ref()
+        .write_all(&HELLO_PREAMBLE)
+        .await
+        .map_err(|err| {
+            debug!("Could not send the handshake preamble: {err}");
+            SerialPortError::AuthenticationFailed
+        })?;
     framed
         .send(SerialMessage::Hello(HelloMessage {}))
         .await
@@ -371,6 +387,38 @@ mod tests {
             assert!(!port.is_connected(), "attempt {attempt}");
 
             // Give the OS a moment to release the handle before reopening.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    /// A leftover byte in the device's receive buffer (such as the tail of a legacy probe sent
+    /// after a missed hello) must not stop the next handshake from connecting.
+    #[tokio::test]
+    #[ignore = "needs a DS-2000 device connected over USB; run with --ignored"]
+    async fn a_stray_byte_in_the_device_buffer_does_not_block_the_handshake() {
+        let _device = DEVICE.lock().await;
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut port = Port::new(tx);
+        port.auto_connect(115200, Duration::from_millis(1000))
+            .await
+            .expect("a DS-2000 should be connected");
+        let name = port.name.clone().expect("a connected port has a name");
+        port.disconnect().await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Leave the tail of a legacy probe in the device's buffer, unterminated.
+        let raw = SerialPort::open(&name, 115200).expect("the port reopens");
+        raw.set_dtr(true).expect("sets DTR");
+        raw.write_all(&[0xFF]).await.expect("writes");
+        drop(raw);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        for attempt in 1..=3 {
+            port.auto_connect(115200, Duration::from_millis(1000))
+                .await
+                .unwrap_or_else(|err| panic!("attempt {attempt} should connect: {err}"));
+            port.disconnect().await;
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }

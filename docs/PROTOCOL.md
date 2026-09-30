@@ -127,7 +127,9 @@ image. It does not answer: its serial port disappearing is the reply.
 
 The application runs this on every port it tries, before using it:
 
-1. Send **Hello** and wait 200 ms for a frame.
+1. Send a lone `0x00`, then **Hello**, and wait 200 ms for a frame. The `0x00` is an empty frame
+   that ends anything left in the device's receive buffer (see below), so the Hello always starts
+   a fresh frame.
 2. **DeviceInfo** arrives: if its protocol equals the application's, the device is connected.
    Otherwise the port is closed and the device is reported as incompatible: *firmware out of date*
    if its protocol is lower, *application out of date* if higher. Nothing else is exchanged with it.
@@ -147,6 +149,12 @@ The legacy probe is the three bytes `FF 00 FF`: the first `0xFF` ends whatever t
 in the old firmware's buffer, and `00 FF` is its ping. That leftover is harmless: the Hello is
 always `01 03 E1 F0 00`, which the old firmware reads as a pong and ignores. Protocol 0 is reported
 for a device that answers the probe.
+
+The probe's trailing `0xFF` is in turn left in the buffer of protocol-1 firmware, where it would
+corrupt the next Hello and make it go unanswered, forever, since every unanswered Hello is followed
+by another probe. The `0x00` sent before each Hello discards it. Old firmware reads that `0x00` as
+the start of a ping, which the probe's first `0xFF` completes: it may answer an extra `01 FF`, which
+the probe is looking for anyway.
 
 ## Reference frames
 
