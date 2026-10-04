@@ -7,8 +7,10 @@ run:
 run-debug:
 	@set RUST_LOG=debug,tauri=debug&& cargo tauri dev
 
+# tauri-cli is only installed when missing: `cargo install` always resolves the newest 2.x, whose
+# MSRV can be ahead of the local rustc, and that failure used to abort before `npm install` ran.
 deps:
-	@cargo install tauri-cli --version "^2.0.0" --locked
+	@cargo tauri --version >NUL 2>&1 || cargo install tauri-cli --version "^2.0.0" --locked
 	@cd src-tauri && cd frontend && npm install
 	
 build-installer-windows:
