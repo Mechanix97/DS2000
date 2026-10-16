@@ -184,7 +184,8 @@ Every string goes through `i18n.js`. Add the key to `translations/en.json` (requ
 ## Known Issues and Technical Debt
 
 - The Discord setup guide linked from the Discord tab (`URL_DISCORD_SETUP_GUIDE`,
-  `mechardo3d.xyz/ds2000/discord-setup`) does not exist yet. The README has the steps.
+  `mechardo3d.xyz/ds2000/discord-setup`) lives in the site repo (Mechanix97/mechardo3d#112); its
+  screenshots are pending (mechardo3d#110, #111). The README has the steps too.
 - The About tab's "Check for updates" is a placeholder (#30).
 - The MSI is unsigned (#29).
 - Windows only. Nothing has been tested on macOS or Linux.

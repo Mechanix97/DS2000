@@ -39,6 +39,10 @@ Discord only lets an application control your microphone if you own that applica
 does not ship one: you create your own. It is free and done once. You need the Discord **desktop**
 app running; the browser version cannot be controlled.
 
+The [step-by-step guide on mechardo3d.xyz](https://www.mechardo3d.xyz/ds2000/discord-setup) has a
+screenshot for every step and a troubleshooting section; the Discord tab in the app links to it
+too. In short:
+
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and click
    **New Application**. Any name works, for example "DS2000".
 2. Go to **OAuth2**:
@@ -49,8 +53,8 @@ app running; the browser version cannot be controlled.
 3. In DS2000, open the **Discord** tab, paste both values and click **Connect**.
 4. Discord shows an authorisation request: accept it.
 
-The Discord tab then reads *Connected to Discord.*, and **Settings → Connections** reads *Discord: Connected*. Your credentials survive restarts; **Unlink** in the
-same tab removes them.
+The Discord tab then reads *Connected to Discord.*, and **Settings → Connections** reads
+*Discord: Connected*. Your credentials survive restarts; **Unlink** in the same tab removes them.
 
 ## Using it
 
