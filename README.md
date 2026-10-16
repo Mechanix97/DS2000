@@ -54,7 +54,7 @@ A professional, open-source desktop application for Discord integration and hard
 
 ### From Releases (Recommended for Users)
 
-The latest version is always an `.msi` in the
+The latest version is an `.msi` in the
 [latest release](https://github.com/Mechanix97/DS2000/releases/latest). Download it and run it.
 
 The installer is unsigned, so SmartScreen warns the first time: **More info → Run anyway**.
