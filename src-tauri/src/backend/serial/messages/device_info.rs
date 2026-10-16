@@ -5,13 +5,6 @@ use bytes::BufMut;
 use crate::error::SerialMessageError;
 use crate::serial_message::SerialFrame;
 
-/// Protocol revision assigned to firmware that predates versioning.
-///
-/// That firmware frames with a bare `0xFF` and cannot answer a hello at all. The handshake
-/// recognises it by a separate probe and reports it under this revision, so it shows up as out of
-/// date rather than as no device.
-pub const UNVERSIONED_PROTOCOL: u8 = 0;
-
 /// Firmware release, as reported by the device.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct FirmwareVersion {
@@ -79,48 +72,17 @@ impl fmt::Display for Board {
     }
 }
 
-/// What the device on the other end says it is.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct DeviceIdentity {
-    /// Wire format revision. The application only talks to a device whose revision matches its
-    /// own [`crate::serial_message::PROTOCOL_VERSION`].
-    pub protocol: u8,
-    /// `None` for firmware that predates versioning.
-    pub board: Option<Board>,
-    /// `None` for firmware that predates versioning.
-    pub firmware: Option<FirmwareVersion>,
-}
-
-impl DeviceIdentity {
-    /// Firmware from before protocol 1, which can report nothing about itself.
-    pub fn unversioned() -> Self {
-        Self {
-            protocol: UNVERSIONED_PROTOCOL,
-            board: None,
-            firmware: None,
-        }
-    }
-}
-
 /// The device's answer to a hello: `[protocol][board][major][minor][patch]`.
 ///
 /// The payload is what lets the application refuse a device whose wire format it does not speak,
 /// instead of accepting it and then silently misreading its frames.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct DeviceInfoMessage {
+    /// Wire format revision. The application only talks to a device whose revision matches its
+    /// own [`crate::serial_message::PROTOCOL_VERSION`].
     pub protocol: u8,
     pub board: Board,
     pub firmware: FirmwareVersion,
-}
-
-impl DeviceInfoMessage {
-    pub fn identity(&self) -> DeviceIdentity {
-        DeviceIdentity {
-            protocol: self.protocol,
-            board: Some(self.board),
-            firmware: Some(self.firmware),
-        }
-    }
 }
 
 impl SerialFrame for DeviceInfoMessage {

@@ -7,7 +7,7 @@
 use common::rgb_update::RGBConfig;
 use std::path::PathBuf;
 
-use crate::messages::device_info::DeviceIdentity;
+use crate::messages::device_info::DeviceInfoMessage;
 use crate::messages::rgb::RGBConfigMessage;
 use crate::messages::voice_settings::VoiceSettingsMessage;
 
@@ -57,10 +57,10 @@ pub enum OutMessage {
 pub enum DeviceStatus {
     #[default]
     Disconnected,
-    Connected(DeviceIdentity),
+    Connected(DeviceInfoMessage),
     /// A DS2000 answered but speaks another protocol revision, so nothing is exchanged with it.
     /// Reported separately so the user is told to update rather than left seeing "not connected".
-    Incompatible(DeviceIdentity),
+    Incompatible(DeviceInfoMessage),
 }
 
 /// Something worth telling the controller about.
@@ -287,6 +287,7 @@ impl GenServer for SerialPortState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::messages::device_info::{Board, FirmwareVersion};
 
     fn state() -> (SerialPortState, mpsc::UnboundedReceiver<SerialWorkerEvent>) {
         let (port_tx, _port_rx) = mpsc::unbounded_channel();
@@ -306,8 +307,16 @@ mod tests {
         )
     }
 
-    fn outdated_device() -> DeviceIdentity {
-        DeviceIdentity::unversioned()
+    fn outdated_device() -> DeviceInfoMessage {
+        DeviceInfoMessage {
+            protocol: crate::serial_message::PROTOCOL_VERSION - 1,
+            board: Board::Rp2350Zero,
+            firmware: FirmwareVersion {
+                major: 0,
+                minor: 1,
+                patch: 0,
+            },
+        }
     }
 
     #[test]

@@ -62,9 +62,9 @@ pub enum SerialState {
 #[derive(Serialize, Clone, PartialEq, Eq, Debug, Default)]
 pub struct SerialStatusPayload {
     pub state: SerialState,
-    /// `None` while nothing is attached, and for firmware that predates versioning.
+    /// What the device reported in the handshake. `None` while nothing is attached.
     pub firmware: Option<String>,
-    /// Board the firmware was built for, by name. `None` in the same cases as `firmware`.
+    /// Board the firmware was built for, by name. `None` while nothing is attached.
     pub board: Option<String>,
 }
 
@@ -80,8 +80,8 @@ impl From<DeviceStatus> for SerialStatusPayload {
         };
         Self {
             state,
-            firmware: device.firmware.map(|version| version.to_string()),
-            board: device.board.map(|board| board.to_string()),
+            firmware: Some(device.firmware.to_string()),
+            board: Some(device.board.to_string()),
         }
     }
 }
@@ -357,17 +357,17 @@ impl Coordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial::messages::device_info::{Board, DeviceIdentity, FirmwareVersion};
+    use serial::messages::device_info::{Board, DeviceInfoMessage, FirmwareVersion};
 
-    fn device(protocol: u8) -> DeviceIdentity {
-        DeviceIdentity {
+    fn device(protocol: u8) -> DeviceInfoMessage {
+        DeviceInfoMessage {
             protocol,
-            board: Some(Board::Rp2350Zero),
-            firmware: Some(FirmwareVersion {
+            board: Board::Rp2350Zero,
+            firmware: FirmwareVersion {
                 major: 0,
                 minor: 2,
                 patch: 1,
-            }),
+            },
         }
     }
 
@@ -383,10 +383,9 @@ mod tests {
     #[test]
     fn a_mismatch_says_which_side_to_update() {
         let firmware_outdated =
-            SerialStatusPayload::from(DeviceStatus::Incompatible(DeviceIdentity::unversioned()));
+            SerialStatusPayload::from(DeviceStatus::Incompatible(device(PROTOCOL_VERSION - 1)));
         assert_eq!(firmware_outdated.state, SerialState::FirmwareOutdated);
-        assert_eq!(firmware_outdated.firmware, None);
-        assert_eq!(firmware_outdated.board, None);
+        assert_eq!(firmware_outdated.firmware.as_deref(), Some("0.2.1"));
 
         let app_outdated =
             SerialStatusPayload::from(DeviceStatus::Incompatible(device(PROTOCOL_VERSION + 1)));

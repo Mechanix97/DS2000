@@ -9,6 +9,7 @@ common.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 serial2-tokio.workspace = true
+serialport.workspace = true
 futures-util.workspace = true
 tracing.workspace = true
 bytes.workspace = true

@@ -77,8 +77,7 @@
     "terms": "Terms of service",
     "privacy": "Privacy policy",
     "updates": "Check for updates (TODO)",
-    "firmware": "Firmware:",
-    "firmwareUnversioned": "unknown (predates versioning)"
+    "firmware": "Firmware:"
   },
   "status": {
     "discordConnected": "Discord: Connected",

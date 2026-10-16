@@ -6,7 +6,7 @@
 //! to 100 ms each time whether or not the device had said anything.
 
 use super::error::SerialPortError;
-use super::messages::device_info::DeviceIdentity;
+use super::messages::device_info::DeviceInfoMessage;
 use super::messages::hello::HelloMessage;
 use super::serial_message::SerialMessageCodec;
 use super::serial_message::{PROTOCOL_VERSION, SerialMessage};
@@ -15,6 +15,7 @@ use common::task_guard::AbortOnDrop;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serial2_tokio::SerialPort;
+use serialport::{SerialPortInfo, SerialPortType};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
@@ -25,26 +26,22 @@ use tracing::{debug, info, warn};
 type PortFramed = Framed<SerialPort, SerialMessageCodec>;
 type PortWriter = SplitSink<PortFramed, SerialMessage>;
 
-/// How long the device has to answer the hello, and separately the legacy probe, before the port
-/// is rejected.
+/// How long the device has to answer the hello before the port is rejected.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(200);
 
-/// Asks firmware from before protocol 1 to identify itself, in its own framing.
+/// USB vendor id the device enumerates with: Raspberry Pi's, which the Arduino-Pico core uses.
 ///
-/// That firmware ends frames on a bare `0xFF` and answers `00 FF` (its ping) with `01 FF` (its
-/// pong). The leading `0xFF` flushes whatever the hello left in its buffer first; the COBS hello
-/// always starts with `0x01`, which that firmware reads as a pong and ignores, so nothing it acts
-/// on is ever sent.
-const LEGACY_PROBE: [u8; 3] = [0xFF, 0x00, 0xFF];
+/// Only ports behind this vendor are opened. The product id is not checked because it differs per
+/// board (the RP2350-Zero, the Pico and the Pico 2 each have their own), and the hello is what
+/// finally tells a DS2000 apart from any other RP2040/RP2350 board.
+pub const DS2000_USB_VID: u16 = 0x2E8A;
 
 /// Sent before the handshake hello: a bare delimiter, which protocol 1 reads as an empty frame.
 ///
-/// It ends whatever the device's receive buffer still holds. Without it, the trailing `0xFF` of a
-/// legacy probe sent to protocol-1 firmware (which happens whenever a hello goes unanswered) stayed
-/// in that buffer, got prepended to the next hello and broke it, which triggered another probe:
-/// the application never connected again until the device was unplugged.
+/// It ends whatever the device's receive buffer still holds, such as a frame cut short when the
+/// application last closed the port, so the hello always starts a fresh frame instead of being
+/// appended to a broken one and failing its CRC.
 const HELLO_PREAMBLE: [u8; 1] = [0x00];
-const LEGACY_REPLY: [u8; 2] = [0x01, 0xFF];
 
 /// Something the reader task observed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,7 +58,7 @@ pub struct Port {
     _reader_task: Option<Arc<AbortOnDrop>>,
     events: mpsc::UnboundedSender<SerialEvent>,
     /// What the connected device reported in the handshake. `Some` exactly while connected.
-    device: Option<DeviceIdentity>,
+    device: Option<DeviceInfoMessage>,
 }
 
 impl Port {
@@ -104,9 +101,9 @@ impl Port {
         let device = handshake(&mut framed).await?;
         if device.protocol != PROTOCOL_VERSION {
             warn!(
-                "Port {port_name:?} has a DS2000 on protocol {} (firmware {}), this application                  speaks {PROTOCOL_VERSION}",
-                device.protocol,
-                describe_firmware(&device),
+                "Port {port_name:?} has a DS2000 on protocol {} (firmware {} on {}), this \
+                 application speaks {PROTOCOL_VERSION}",
+                device.protocol, device.firmware, device.board,
             );
             return Err(SerialPortError::IncompatibleDevice(device));
         }
@@ -120,13 +117,16 @@ impl Port {
         self.device = Some(device);
 
         info!(
-            "Serial port {port_name:?} connected, firmware {}",
-            describe_firmware(&device)
+            "Serial port {port_name:?} connected, firmware {} on {}",
+            device.firmware, device.board
         );
         Ok(())
     }
 
-    /// Tries every available port until one answers the handshake.
+    /// Tries every port behind [`DS2000_USB_VID`] until one answers the handshake.
+    ///
+    /// Ports from any other vendor are never opened: opening one resets an Arduino, and the hello
+    /// would be written to whatever else is listening (a printer, a modem, a Bluetooth link).
     ///
     /// When nothing usable is found but a DS2000 on the wrong protocol was, that is what gets
     /// reported: "no device" would send the user looking for a cable fault instead of an update.
@@ -135,11 +135,8 @@ impl Port {
         baudrate: u32,
         timeout: Duration,
     ) -> Result<(), SerialPortError> {
-        let mut available_ports = available_ports()?;
-        available_ports.sort();
-
         let mut incompatible = None;
-        for path in available_ports {
+        for path in candidate_ports()? {
             debug!("Trying serial port {path:?}");
             match self
                 .connect_and_authenticate(&path, baudrate, timeout)
@@ -171,7 +168,7 @@ impl Port {
     }
 
     /// What the connected device reported in the handshake, or `None` while disconnected.
-    pub fn device(&self) -> Option<DeviceIdentity> {
+    pub fn device(&self) -> Option<DeviceInfoMessage> {
         self.device
     }
 
@@ -187,14 +184,10 @@ impl Port {
 /// Confirms a DS-2000 is on the other end by exchanging hello / device info, and returns what it
 /// reported.
 ///
-/// Without it, `auto_connect` would happily latch onto any serial device on the machine — a
-/// printer, an Arduino, a Bluetooth adapter. Whether the reported protocol is one this application
-/// speaks is for the caller to decide.
-///
-/// A device that does not answer the hello gets one more chance in the pre-COBS framing, so that
-/// firmware from before protocol 1 is reported as out of date instead of being indistinguishable
-/// from no device at all.
-async fn handshake(framed: &mut PortFramed) -> Result<DeviceIdentity, SerialPortError> {
+/// The USB vendor filter only narrows discovery down to RP2040/RP2350 boards; this is what tells a
+/// DS2000 apart from any other one. Whether the reported protocol is one this application speaks
+/// is for the caller to decide.
+async fn handshake(framed: &mut PortFramed) -> Result<DeviceInfoMessage, SerialPortError> {
     framed
         .get_ref()
         .write_all(&HELLO_PREAMBLE)
@@ -212,7 +205,7 @@ async fn handshake(framed: &mut PortFramed) -> Result<DeviceIdentity, SerialPort
         })?;
 
     match timeout(HANDSHAKE_TIMEOUT, framed.next()).await {
-        Ok(Some(Ok(Ok(SerialMessage::DeviceInfo(info))))) => Ok(info.identity()),
+        Ok(Some(Ok(Ok(SerialMessage::DeviceInfo(info))))) => Ok(info),
         Ok(Some(Ok(Ok(other)))) => {
             debug!("Handshake answered with {other:?} instead of device info");
             Err(SerialPortError::AuthenticationFailed)
@@ -223,37 +216,7 @@ async fn handshake(framed: &mut PortFramed) -> Result<DeviceIdentity, SerialPort
         }
         Ok(Some(Err(err))) => Err(err),
         Ok(None) => Err(SerialPortError::PortNotConnected),
-        Err(_) if probe_legacy_firmware(framed).await => Ok(DeviceIdentity::unversioned()),
         Err(_) => Err(SerialPortError::TimedOut),
-    }
-}
-
-/// Whether the port answers [`LEGACY_PROBE`] the way pre-protocol-1 firmware does.
-///
-/// The reply contains no `0x00`, so the codec never completes a frame from it: it stays in the
-/// read buffer, which is where it is looked for once the wait is over.
-async fn probe_legacy_firmware(framed: &mut PortFramed) -> bool {
-    framed.read_buffer_mut().clear();
-    if let Err(err) = framed.get_ref().write_all(&LEGACY_PROBE).await {
-        debug!("Could not send the legacy probe: {err}");
-        return false;
-    }
-
-    // Only the timeout can end this wait usefully; a frame decoded here would be a new-framing
-    // reply, which the hello already had its chance to receive.
-    let _ = timeout(HANDSHAKE_TIMEOUT, framed.next()).await;
-    framed
-        .read_buffer()
-        .windows(LEGACY_REPLY.len())
-        .any(|window| window == LEGACY_REPLY)
-}
-
-/// The firmware version and board for a log line. Firmware before versioning reports neither.
-fn describe_firmware(device: &DeviceIdentity) -> String {
-    match (device.firmware, device.board) {
-        (Some(version), Some(board)) => format!("{version} on {board}"),
-        (Some(version), None) => version.to_string(),
-        _ => "unversioned".to_owned(),
     }
 }
 
@@ -285,15 +248,33 @@ async fn read_loop(
     let _ = events.send(SerialEvent::Disconnected);
 }
 
-/// Lists candidate serial ports.
+/// Lists the serial ports that may have a DS2000 behind them, in a stable order.
 ///
 /// Enumeration failing is reported rather than panicking: it happens on machines with unusual
 /// driver setups, and it must not take the application down.
-fn available_ports() -> Result<Vec<PathBuf>, SerialPortError> {
-    SerialPort::available_ports().map_err(|err| {
+fn candidate_ports() -> Result<Vec<PathBuf>, SerialPortError> {
+    let ports = serialport::available_ports().map_err(|err| {
         warn!("Could not enumerate serial ports: {err}");
         SerialPortError::PortNotAvailable
-    })
+    })?;
+    Ok(ds2000_ports(ports))
+}
+
+/// Keeps the USB ports whose vendor is [`DS2000_USB_VID`], sorted by name.
+fn ds2000_ports(ports: Vec<SerialPortInfo>) -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = ports
+        .into_iter()
+        .filter(|port| {
+            let matches = matches!(&port.port_type, SerialPortType::UsbPort(usb) if usb.vid == DS2000_USB_VID);
+            if !matches {
+                debug!("Skipping serial port {}: not a DS2000 USB device", port.port_name);
+            }
+            matches
+        })
+        .map(|port| PathBuf::from(port.port_name))
+        .collect();
+    candidates.sort();
+    candidates
 }
 
 #[cfg(test)]
@@ -322,6 +303,52 @@ mod tests {
                 .await,
             Err(SerialPortError::PortNotConnected)
         );
+    }
+
+    fn usb_port(name: &str, vid: u16, pid: u16) -> SerialPortInfo {
+        SerialPortInfo {
+            port_name: name.to_owned(),
+            port_type: SerialPortType::UsbPort(serialport::UsbPortInfo {
+                vid,
+                pid,
+                serial_number: None,
+                manufacturer: None,
+                product: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn only_raspberry_pi_usb_ports_are_candidates() {
+        let ports = vec![
+            usb_port("COM9", 0x2341, 0x0043), // Arduino Uno
+            SerialPortInfo {
+                port_name: "COM1".to_owned(),
+                port_type: SerialPortType::PciPort,
+            },
+            SerialPortInfo {
+                port_name: "COM6".to_owned(),
+                port_type: SerialPortType::BluetoothPort,
+            },
+            usb_port("COM4", DS2000_USB_VID, 0x10B0), // RP2350-Zero
+            usb_port("COM3", 0x1A86, 0x7523),         // CH340 adapter
+            usb_port("COM12", DS2000_USB_VID, 0x000A), // Pico
+            SerialPortInfo {
+                port_name: "COM2".to_owned(),
+                port_type: SerialPortType::Unknown,
+            },
+        ];
+
+        assert_eq!(
+            ds2000_ports(ports),
+            [PathBuf::from("COM12"), PathBuf::from("COM4")]
+        );
+    }
+
+    #[test]
+    fn no_matching_port_leaves_nothing_to_open() {
+        assert!(ds2000_ports(vec![usb_port("COM9", 0x2341, 0x0043)]).is_empty());
+        assert!(ds2000_ports(Vec::new()).is_empty());
     }
 
     #[tokio::test]
@@ -391,8 +418,8 @@ mod tests {
         }
     }
 
-    /// A leftover byte in the device's receive buffer (such as the tail of a legacy probe sent
-    /// after a missed hello) must not stop the next handshake from connecting.
+    /// A leftover byte in the device's receive buffer (such as the start of a frame the previous
+    /// connection never finished) must not stop the next handshake from connecting.
     #[tokio::test]
     #[ignore = "needs a DS-2000 device connected over USB; run with --ignored"]
     async fn a_stray_byte_in_the_device_buffer_does_not_block_the_handshake() {
@@ -407,7 +434,7 @@ mod tests {
         port.disconnect().await;
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        // Leave the tail of a legacy probe in the device's buffer, unterminated.
+        // Leave an unterminated byte in the device's buffer.
         let raw = SerialPort::open(&name, 115200).expect("the port reopens");
         raw.set_dtr(true).expect("sets DTR");
         raw.write_all(&[0xFF]).await.expect("writes");
