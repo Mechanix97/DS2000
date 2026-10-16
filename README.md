@@ -54,10 +54,15 @@ A professional, open-source desktop application for Discord integration and hard
 
 ### From Releases (Recommended for Users)
 
-1. Download the latest release from the [Releases](https://github.com/Mechanix97/DS2000/releases) page
-2. Download the `.msi` installer (Windows) or appropriate package for your OS
-3. Run the installer and follow the on-screen instructions
-4. Launch DS2000 from your Start Menu or Applications
+DS2000 is distributed for Windows as an MSI installer.
+
+1. Open the latest release on the [Releases](https://github.com/Mechanix97/DS2000/releases) page
+2. Download the `.msi` file and run it. The installer is not signed yet, so Windows SmartScreen
+   warns on first run: choose **More info → Run anyway**
+3. Launch DS2000 from the Start Menu
+
+Each release notes the serial protocol it speaks. The device firmware has to be on the same
+protocol; the About tab shows the firmware version the device reports.
 
 ### From Source (For Developers)
 

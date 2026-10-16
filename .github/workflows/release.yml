@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  # A version tag builds the installer and attaches it to a draft release.
+  push:
+    tags: ['v*']
+  # A pull request that touches the pipeline builds the installer too, as a workflow artifact and
+  # with no release, so a broken release build is caught before the next tag rather than on it.
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - src-tauri/tauri.conf.json
+
+# Creating the release and uploading the MSI to it.
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # The CLI that bundles the MSI. Pinned so a release does not change with whatever 2.x is newest
+  # on the day of the tag; bump it deliberately.
+  TAURI_CLI_VERSION: 2.11.4
+
+jobs:
+  installer:
+    name: Windows installer
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml at the repository root is the single source of the toolchain, as in ci.yml.
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      # Cargo.toml is the single source of the version (#19): a tag that disagrees with it would
+      # publish an installer that reports a different version than its release.
+      - name: Read the version
+        id: version
+        working-directory: src-tauri
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "DS2000") | .version')
+          protocol=$(sed -n 's/^pub const PROTOCOL_VERSION: u8 = \([0-9]*\);/\1/p' \
+            src/backend/serial/serial_message.rs)
+          if [ -z "$version" ] || [ -z "$protocol" ]; then
+            echo "::error::Could not read the version ($version) or the protocol ($protocol)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "protocol=$protocol" >> "$GITHUB_OUTPUT"
+          echo "Version $version, serial protocol $protocol"
+
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [ "$GITHUB_REF_NAME" != "v${{ steps.version.outputs.version }}" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version ${{ steps.version.outputs.version }} in src-tauri/Cargo.toml"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: src-tauri/frontend/package-lock.json
+
+      # `cargo tauri build` runs the frontend build itself (beforeBuildCommand); it only needs the
+      # dependencies installed.
+      - name: Install frontend dependencies
+        working-directory: src-tauri/frontend
+        run: npm ci
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release
+
+      # Built with stable rather than the pinned toolchain: the CLI's own MSRV moves ahead of the
+      # app's (2.12 needs rustc 1.90), and which compiler builds the CLI does not affect the app.
+      - name: Cache tauri-cli
+        id: tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: tauri-cli-${{ runner.os }}-${{ env.TAURI_CLI_VERSION }}
+
+      - name: Install tauri-cli
+        if: steps.tauri-cli.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install stable --profile minimal
+          cargo +stable install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+
+      - name: Build the installer
+        working-directory: src-tauri
+        run: cargo tauri build
+
+      - name: Locate the MSI
+        id: msi
+        run: |
+          msi=$(ls src-tauri/target/release/bundle/msi/*.msi)
+          if [ "$(echo "$msi" | wc -l)" -ne 1 ]; then
+            echo "::error::Expected exactly one MSI, found: $msi"
+            exit 1
+          fi
+          echo "path=$msi" >> "$GITHUB_OUTPUT"
+          echo "Built $msi"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: ${{ steps.msi.outputs.path }}
+          if-no-files-found: error
+
+      # A draft, so publishing stays a human decision. Re-running the workflow for the same tag
+      # replaces the MSI instead of failing on the existing release.
+      - name: Attach the MSI to a draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MSI: ${{ steps.msi.outputs.path }}
+          PROTOCOL: ${{ steps.version.outputs.protocol }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$MSI" --clobber
+            exit 0
+          fi
+          cat > notes.md <<EOF
+          ## Compatibility
+
+          This release speaks **serial protocol $PROTOCOL**. Pair it with a
+          [DS2000-Firmware](https://github.com/Mechanix97/DS2000-Firmware/releases) release on the same
+          protocol; the About tab shows the firmware the device reports.
+
+          ## Installing
+
+          Download the \`.msi\` below and run it. The installer is not signed yet (#29), so Windows
+          SmartScreen warns on first run: choose **More info → Run anyway**.
+          EOF
+          gh release create "$GITHUB_REF_NAME" "$MSI" --draft --verify-tag \
+            --title "DS2000 $GITHUB_REF_NAME" --notes-file notes.md --generate-notes

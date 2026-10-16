@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "identifier": "com.tauri.ds2000",
+  "identifier": "xyz.mechardo3d.ds2000",
   "productName": "DS2000",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -26,7 +26,7 @@
     ],
     "windows": {
       "wix": {
-        "language": "es-ES"
+        "language": "en-US"
       }
     },
     "publisher": "Mechardo Labs"
