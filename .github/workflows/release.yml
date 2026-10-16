@@ -114,25 +114,45 @@ jobs:
           echo "path=$msi" >> "$GITHUB_OUTPUT"
           echo "Built $msi"
 
+      # The installer is unsigned, so the checksum is what lets a user check the download is the
+      # file this workflow built. Written in `sha256sum` format, with the bare file name, so
+      # `sha256sum -c` works next to the downloaded MSI.
+      - name: Compute the checksum
+        id: checksum
+        env:
+          MSI: ${{ steps.msi.outputs.path }}
+        run: |
+          name=$(basename "$MSI")
+          (cd "$(dirname "$MSI")" && sha256sum "$name" > "$name.sha256")
+          hash=$(cut -d' ' -f1 "$MSI.sha256")
+          echo "path=$MSI.sha256" >> "$GITHUB_OUTPUT"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "SHA-256 $hash"
+
       - uses: actions/upload-artifact@v4
         with:
           name: installer
-          path: ${{ steps.msi.outputs.path }}
+          path: |
+            ${{ steps.msi.outputs.path }}
+            ${{ steps.checksum.outputs.path }}
           if-no-files-found: error
 
       # A draft, so publishing stays a human decision. Re-running the workflow for the same tag
-      # replaces the MSI instead of failing on the existing release.
+      # replaces the MSI and its checksum instead of failing on the existing release.
       - name: Attach the MSI to a draft release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           MSI: ${{ steps.msi.outputs.path }}
+          CHECKSUM: ${{ steps.checksum.outputs.path }}
+          HASH: ${{ steps.checksum.outputs.hash }}
           PROTOCOL: ${{ steps.version.outputs.protocol }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$MSI" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" --clobber
             exit 0
           fi
+          name=$(basename "$MSI")
           cat > notes.md <<EOF
           ## Compatibility
 
@@ -142,8 +162,19 @@ jobs:
 
           ## Installing
 
-          Download the \`.msi\` below and run it. The installer is not signed yet (#29), so Windows
-          SmartScreen warns on first run: choose **More info → Run anyway**.
+          Download the \`.msi\` below and run it. The installer is not signed, so Windows SmartScreen
+          warns on first run: choose **More info → Run anyway**.
+
+          ## Verifying the download
+
+          Since the installer is unsigned, check it against its SHA-256 before running it:
+
+          \`\`\`
+          $HASH  $name
+          \`\`\`
+
+          In PowerShell, \`Get-FileHash $name\` prints the same hash (in upper case). The
+          \`$name.sha256\` file below holds it too, for \`sha256sum -c $name.sha256\`.
           EOF
-          gh release create "$GITHUB_REF_NAME" "$MSI" --draft --verify-tag \
+          gh release create "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" --draft --verify-tag \
             --title "DS2000 $GITHUB_REF_NAME" --notes-file notes.md --generate-notes

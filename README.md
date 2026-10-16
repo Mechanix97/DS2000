@@ -57,9 +57,11 @@ A professional, open-source desktop application for Discord integration and hard
 DS2000 is distributed for Windows as an MSI installer.
 
 1. Open the latest release on the [Releases](https://github.com/Mechanix97/DS2000/releases) page
-2. Download the `.msi` file and run it. The installer is not signed yet, so Windows SmartScreen
-   warns on first run: choose **More info → Run anyway**
-3. Launch DS2000 from the Start Menu
+2. Download the `.msi` file. The installer is not signed, so check it first: in PowerShell,
+   `Get-FileHash <file>.msi` must print the SHA-256 listed in the release notes (also in the
+   `.sha256` file next to the MSI)
+3. Run the MSI. Windows SmartScreen warns on first run: choose **More info → Run anyway**
+4. Launch DS2000 from the Start Menu
 
 Each release notes the serial protocol it speaks. The device firmware has to be on the same
 protocol; the About tab shows the firmware version the device reports.
