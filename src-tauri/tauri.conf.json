@@ -18,6 +18,7 @@
     "system-tray": {}
   },
   "bundle": {
+    "active": true,
     "icon": [
       "icons/ds2000-logo.ico"
     ],
