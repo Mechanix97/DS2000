@@ -14,7 +14,7 @@ deps:
 	@cd src-tauri && cd frontend && npm install
 	
 build-installer-windows:
-	@cd src-tauri && cargo tauri build && cargo tauri bundle
+	@cd src-tauri && cargo tauri build
 
 clean:
 	@cd src-tauri && cargo clean

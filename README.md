@@ -54,10 +54,14 @@ A professional, open-source desktop application for Discord integration and hard
 
 ### From Releases (Recommended for Users)
 
-1. Download the latest release from the [Releases](https://github.com/Mechanix97/DS2000/releases) page
-2. Download the `.msi` installer (Windows) or appropriate package for your OS
-3. Run the installer and follow the on-screen instructions
-4. Launch DS2000 from your Start Menu or Applications
+The latest version is an `.msi` in the
+[latest release](https://github.com/Mechanix97/DS2000/releases/latest). Download it and run it.
+
+The installer is unsigned, so SmartScreen warns the first time: **More info → Run anyway**.
+To check the download, `Get-FileHash <file>.msi` in PowerShell must match the SHA-256 in the
+release notes.
+
+The firmware has to speak the same serial protocol as the app. Each release says which one.
 
 ### From Source (For Developers)
 
