@@ -30,7 +30,7 @@ To check the download, `Get-FileHash <file>.msi` in PowerShell must match the SH
 release notes.
 
 The device firmware has to speak the same serial protocol as the app; each release says which one.
-If they do not match, the status bar says whether the firmware or the app is out of date. The
+If they do not match, **Settings → Connections** says whether the firmware or the app is out of date. The
 firmware lives in [DS2000-Firmware](https://github.com/Mechanix97/DS2000-Firmware).
 
 ## Connect Discord
@@ -49,7 +49,7 @@ app running; the browser version cannot be controlled.
 3. In DS2000, open the **Discord** tab, paste both values and click **Connect**.
 4. Discord shows an authorisation request: accept it.
 
-The status bar then shows *Discord: Connected*. Your credentials survive restarts; **Unlink** in the
+The Discord tab then reads *Connected to Discord.*, and **Settings → Connections** reads *Discord: Connected*. Your credentials survive restarts; **Unlink** in the
 same tab removes them.
 
 ## Using it
