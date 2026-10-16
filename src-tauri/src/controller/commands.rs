@@ -291,9 +291,7 @@ pub async fn serial_set_rgb(
     request: RgbRequest,
     controller: State<'_, Arc<Mutex<Controller>>>,
 ) -> Result<(), String> {
-    let mut update = RGBConfig::from(request);
-    // 0xFF terminates a frame on the wire, so it cannot appear inside one.
-    update.check_255();
+    let update = RGBConfig::from(request);
 
     let mut controller = controller.lock().await;
     controller.config.update_rgb(&update).await;
@@ -377,24 +375,5 @@ mod tests {
         // which stopped being unknown the moment `Wave` was renamed to match what the UI and the
         // firmware had always called that effect.
         assert!(serde_json::from_str::<RgbRequest>(r#"{"mode":"strobe","brightness":1,"led1":{"red":0,"green":0,"blue":0},"led2":{"red":0,"green":0,"blue":0}}"#).is_err());
-    }
-
-    #[test]
-    fn brightness_and_colours_never_carry_the_frame_delimiter() {
-        // 0xFF ends a frame, so a payload byte of 255 would cut it short.
-        let mut config = RGBConfig::from(request("fixed"));
-        config.brightness = 255;
-        config.rgb_mode = RGBMode::Fixed {
-            led1: led(255, 255, 255),
-            led2: led(255, 0, 255),
-        };
-        config.check_255();
-
-        assert_eq!(config.brightness, 254);
-        let RGBMode::Fixed { led1, led2 } = config.rgb_mode else {
-            panic!("mode preserved");
-        };
-        assert_eq!(led1, led(254, 254, 254));
-        assert_eq!(led2, led(254, 0, 254));
     }
 }

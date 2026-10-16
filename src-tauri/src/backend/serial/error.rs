@@ -1,6 +1,8 @@
 use spawned_concurrency::error::GenServerError;
 use thiserror::Error;
 
+use crate::messages::device_info::DeviceIdentity;
+
 #[derive(Error, Debug)]
 pub enum SerialPortError {
     #[error("Port is not available")]
@@ -17,6 +19,9 @@ pub enum SerialPortError {
     TimedOut,
     #[error("Authentication failed")]
     AuthenticationFailed,
+    /// A DS2000 answered, but speaks a protocol revision this application does not.
+    #[error("Device speaks protocol {}, this application speaks {}", .0.protocol, crate::serial_message::PROTOCOL_VERSION)]
+    IncompatibleDevice(DeviceIdentity),
     #[error("Error reading from port")]
     ErrorReadingPort,
     #[error("Message encoding error: {0}")]
@@ -44,6 +49,9 @@ impl PartialEq for SerialPortError {
             (SerialPortError::ErrorClosingThread, SerialPortError::ErrorClosingThread) => true,
             (SerialPortError::TimedOut, SerialPortError::TimedOut) => true,
             (SerialPortError::AuthenticationFailed, SerialPortError::AuthenticationFailed) => true,
+            (SerialPortError::IncompatibleDevice(d1), SerialPortError::IncompatibleDevice(d2)) => {
+                d1 == d2
+            }
             (SerialPortError::ErrorReadingPort, SerialPortError::ErrorReadingPort) => true,
             (SerialPortError::ErrorEncodingMsg(e1), SerialPortError::ErrorEncodingMsg(e2)) => {
                 e1 == e2
@@ -82,4 +90,12 @@ pub enum SerialMessageError {
 
     #[error("Error invalid message length")]
     InvalidMessageLength,
+
+    /// The COBS encoding does not hold together: bytes were lost or added on the wire.
+    #[error("Error invalid framing")]
+    InvalidFraming,
+
+    /// The frame decoded but its CRC does not match its contents.
+    #[error("Error checksum mismatch")]
+    ChecksumMismatch,
 }

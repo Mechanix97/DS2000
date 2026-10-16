@@ -27,55 +27,10 @@ pub struct LedRgb {
 impl Default for RGBConfig {
     fn default() -> Self {
         Self {
-            brightness: 254,
+            brightness: 255,
             // The midpoint, which is the speed the firmware ran at before the control existed.
             speed: 128,
             rgb_mode: RGBMode::Rainbow,
-        }
-    }
-}
-
-impl RGBConfig {
-    pub fn check_255(&mut self) {
-        if self.brightness == u8::MAX {
-            self.brightness -= 1;
-        }
-        // Speed travels in the payload like any other byte, so it is subject to the same rule:
-        // 255 is the frame delimiter and cannot appear inside a frame.
-        if self.speed == u8::MAX {
-            self.speed -= 1;
-        }
-
-        self.rgb_mode.check_255();
-    }
-}
-
-impl RGBMode {
-    pub fn check_255(&mut self) {
-        match self {
-            RGBMode::Rainbow => {}
-            RGBMode::Fixed { led1, led2 } => {
-                led1.check_255();
-                led2.check_255();
-            }
-            RGBMode::Breathing { led1, led2 } => {
-                led1.check_255();
-                led2.check_255();
-            }
-        }
-    }
-}
-
-impl LedRgb {
-    pub fn check_255(&mut self) {
-        if self.red == u8::MAX {
-            self.red -= 1;
-        }
-        if self.green == u8::MAX {
-            self.green -= 1;
-        }
-        if self.blue == u8::MAX {
-            self.blue -= 1;
         }
     }
 }
