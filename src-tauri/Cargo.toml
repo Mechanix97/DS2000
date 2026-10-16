@@ -71,6 +71,10 @@ tracing = "0.1"
 
 tokio = { version = "1.0", features = ["full"] }
 serial2-tokio = "0.1"
+# Port enumeration only: serial2 lists port names but not the USB vendor behind them, and discovery
+# must know it before opening anything (opening a port resets an Arduino, writing to it reaches a
+# printer or a modem). The I/O itself stays on serial2-tokio. libudev is off: Linux is not a target.
+serialport = { version = "4.10", default-features = false }
 tokio-util = { version = "0.7", features = ["codec"] }
 futures-util = { version = "0.3", features = ["sink"] }
 thiserror = "2.0"

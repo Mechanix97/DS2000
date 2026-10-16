@@ -17,6 +17,11 @@ it independently; when they disagree, this document is what is right.
 USB CDC serial, 115200 baud, 8N1. The baud rate is nominal: on USB CDC it has no effect on speed.
 The application raises DTR and RTS when it opens the port.
 
+The device enumerates with the Raspberry Pi USB vendor id, `0x2E8A`. The application only opens
+serial ports behind that vendor: opening a port resets an Arduino, and anything written to it
+reaches whatever is listening. The product id is not checked, since it differs per board; the
+[handshake](#handshake) is what tells a DS2000 apart from any other RP2040/RP2350 board.
+
 ## Framing
 
 Every message travels as one frame:
@@ -125,36 +130,18 @@ image. It does not answer: its serial port disappearing is the reply.
 
 ## Handshake
 
-The application runs this on every port it tries, before using it:
+The application runs this on every candidate port (see [Transport](#transport)), before using it:
 
 1. Send a lone `0x00`, then **Hello**, and wait 200 ms for a frame. The `0x00` is an empty frame
-   that ends anything left in the device's receive buffer (see below), so the Hello always starts
-   a fresh frame.
+   that ends anything left in the device's receive buffer, such as a frame cut short when the port
+   was last closed, so the Hello always starts a fresh frame.
 2. **DeviceInfo** arrives: if its protocol equals the application's, the device is connected.
    Otherwise the port is closed and the device is reported as incompatible: *firmware out of date*
    if its protocol is lower, *application out of date* if higher. Nothing else is exchanged with it.
-3. **Nothing arrives:** send the [legacy probe](#firmware-before-protocol-1) and wait 200 ms more.
-   If it is answered, the device is reported as firmware out of date. Otherwise the port is not a
-   DS2000.
+3. **Nothing arrives:** the port is not a DS2000.
 
 An incompatible device keeps being retried with the reconnect backoff, so a device flashed with
 matching firmware is picked up without restarting the application.
-
-### Firmware before protocol 1
-
-Earlier firmware ended frames with an unescaped `0xFF`, answered a ping `00 FF` with an empty pong
-`01 FF`, and had no checksum or version. It cannot parse a COBS frame.
-
-The legacy probe is the three bytes `FF 00 FF`: the first `0xFF` ends whatever the COBS Hello left
-in the old firmware's buffer, and `00 FF` is its ping. That leftover is harmless: the Hello is
-always `01 03 E1 F0 00`, which the old firmware reads as a pong and ignores. Protocol 0 is reported
-for a device that answers the probe.
-
-The probe's trailing `0xFF` is in turn left in the buffer of protocol-1 firmware, where it would
-corrupt the next Hello and make it go unanswered, forever, since every unanswered Hello is followed
-by another probe. The `0x00` sent before each Hello discards it. Old firmware reads that `0x00` as
-the start of a ping, which the probe's first `0xFF` completes: it may answer an extra `01 FF`, which
-the probe is looking for anyway.
 
 ## Reference frames
 
@@ -185,5 +172,5 @@ reports a mismatch between any two revisions instead of seeing no device.
 
 | Protocol | Changes |
 |---|---|
-| 0 | Unversioned. Frames ended by a bare `0xFF`, so 255 could not be sent; no checksum; empty ping/pong handshake. |
+| 0 | Unversioned. Frames ended by a bare `0xFF`, so 255 could not be sent; no checksum; empty ping/pong handshake. No longer supported: the application does not detect it. |
 | 1 | COBS + CRC-16 framing; Hello / DeviceInfo handshake with protocol, board and firmware version; RebootToBootloader. |

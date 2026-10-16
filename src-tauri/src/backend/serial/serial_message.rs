@@ -17,8 +17,7 @@ use super::messages::rgb::RGBConfigMessage;
 /// instead of exchanging frames the other side would misread. Bump it with every change to the
 /// framing, a message code or a payload layout, and bump the firmware's `PROTOCOL_VERSION` with it.
 ///
-/// Revision 1 introduced COBS framing with a CRC and the hello / device info exchange. Firmware
-/// before it is [`crate::messages::device_info::UNVERSIONED_PROTOCOL`].
+/// Revision 1 introduced COBS framing with a CRC and the hello / device info exchange.
 pub const PROTOCOL_VERSION: u8 = 1;
 
 /// Longest run of bytes the decoder buffers while waiting for a delimiter.
@@ -198,9 +197,6 @@ mod tests {
     /// checked against the same vectors rather than only against themselves.
     ///
     /// Pins docs/PROTOCOL.md, "Reference frames".
-    ///
-    /// The hello also has to start with `0x01` and contain no `0xFF`: that is what makes it
-    /// harmless to pre-protocol-1 firmware ahead of the legacy probe in `port.rs`.
     #[test]
     fn frames_match_the_reference_wire_bytes() {
         assert_eq!(
