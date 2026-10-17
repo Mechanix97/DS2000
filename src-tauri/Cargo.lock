@@ -6,6 +6,8 @@ version = 4
 name = "DS2000"
 version = "0.2.0"
 dependencies = [
+ "common",
+ "config",
  "controller",
  "dotenvy",
  "serde_json",

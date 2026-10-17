@@ -71,7 +71,7 @@ src-tauri/src/
 │   ├── config.rs                # %APPDATA%\Mechardo\config.json
 │   ├── credentials.rs           # Keyring access, redirect URI, setup guide URL
 │   └── language.rs
-└── common/                      # crate `common`: RGB types, task guard
+└── common/                      # crate `common`: RGB types, task guard, rotating log file
 
 src-tauri/frontend/
 ├── index.html, styles.css
@@ -81,6 +81,7 @@ src-tauri/frontend/
 ├── startupSettings.js           # Settings tab: autostart, start minimised, language
 ├── updater.js                   # About tab: check for updates and install them
 ├── firmwareUpdater.js           # About tab: check for device firmware updates and install them
+├── logsFolder.js                # About tab: open the logs folder
 ├── serverButtonEvents.js        # External links
 ├── i18n.js                      # Bundled translations; the language is persisted by the backend
 └── translations/{en,es}.json    # en is the fallback and must be complete
@@ -90,7 +91,8 @@ src-tauri/frontend/
 
 ### IPC
 
-**Commands** (`controller/commands.rs`, registered in `main.rs`): `app_version`, `controller_start`,
+**Commands** (`controller/commands.rs`, registered in `main.rs`): `app_version`, `open_logs_folder`,
+`controller_start`,
 `ds_set_voice_settings_command`, `serial_set_rgb`, `discord_credentials_status`,
 `discord_set_credentials`, `discord_clear_credentials`, `startup_preferences`,
 `set_startup_preferences`, `ui_language`, `set_ui_language`; `update_check` and `update_install`
@@ -123,6 +125,10 @@ and calls `app_handle.exit(0)`. Closing the window only hides it.
 - Keyring, service `DS2000`: `discord_client_secret`, `discord_access_token`,
   `discord_refresh_token`.
 - Redirect URI the user registers in Discord: `http://localhost/` (`DISCORD_REDIRECT_URI`).
+- Logs: `init_logging` in `main.rs` writes to the console and to `%APPDATA%\Mechardo\logs\ds2000.log`
+  (`common::log_file`): at 2.5 MB it becomes `ds2000.1.log`, replacing the previous one, so logs
+  never pass 5 MB. Users attach them to bug reports, so nothing secret may be logged; the Discord
+  tokens and credentials have redacting `Debug` impls for that reason.
 
 ### Serial
 

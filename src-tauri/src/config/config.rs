@@ -23,6 +23,7 @@ use tracing::{debug, info, warn};
 const CONFIG_SAVE_INTERVAL: Duration = Duration::from_secs(60);
 const CONFIG_DIR: &str = "Mechardo";
 const CONFIG_FILE: &str = "config.json";
+const LOG_DIR: &str = "logs";
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -261,6 +262,12 @@ fn store_optional_secret(secret: Secret, value: Option<String>) -> Result<(), Cr
         Some(value) => credentials::write(secret, &value),
         None => credentials::clear(secret),
     }
+}
+
+/// `%APPDATA%\Mechardo\logs`, beside the configuration file.
+pub fn log_dir() -> Result<PathBuf, ConfigError> {
+    let base_dirs = BaseDirs::new().ok_or(ConfigError::NoConfigDir)?;
+    Ok(base_dirs.config_dir().join(CONFIG_DIR).join(LOG_DIR))
 }
 
 fn config_file_path() -> Result<PathBuf, ConfigError> {

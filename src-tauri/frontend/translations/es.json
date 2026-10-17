@@ -91,6 +91,12 @@
     "installFailed": "No se pudo descargar la actualización. Inténtalo más tarde.",
     "firmware": "Firmware:"
   },
+  "logs": {
+    "section": "Solución de problemas",
+    "description": "Si algo falla, adjunta estos archivos a tu reporte de error.",
+    "open": "Abrir carpeta de logs",
+    "openFailed": "No se pudo abrir la carpeta de logs."
+  },
   "firmwareUpdate": {
     "section": "Firmware del dispositivo",
     "check": "Buscar actualización de firmware",

@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use common::log_file::RotatingLogFile;
+use config::config::log_dir;
 use controller::commands;
 use controller::controller::Controller;
 use controller::coordinator::{Coordinator, UiRefreshHandle};
@@ -12,6 +14,8 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::MacosLauncher;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, warn};
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::prelude::*;
 
 /// Window the frontend runs in.
 const MAIN_WINDOW: &str = "main";
@@ -29,6 +33,13 @@ const WINDOW_HEIGHT: f64 = 660.0;
 const WINDOW_MIN_WIDTH: f64 = 720.0;
 const WINDOW_MIN_HEIGHT: f64 = 520.0;
 
+/// Name of the log files in `%APPDATA%\Mechardo\logs`: `ds2000.log` and `ds2000.1.log`.
+const LOG_FILE_NAME: &str = "ds2000";
+
+/// Size at which `ds2000.log` becomes `ds2000.1.log`. Only one older file is kept, so the logs
+/// never take more than 5 MB, which at the info level is weeks of use.
+const LOG_FILE_MAX_BYTES: u64 = 5 * 1024 * 1024 / 2;
+
 /// Signals that shutdown has finished and the process may exit.
 ///
 /// A newtype rather than a bare `UnboundedSender<()>`: Tauri keys managed state by type, and
@@ -37,13 +48,50 @@ const WINDOW_MIN_HEIGHT: f64 = 520.0;
 #[derive(Clone)]
 struct ShutdownSignal(mpsc::UnboundedSender<()>);
 
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+/// Logs to the console, for `cargo tauri dev`, and to a file a user can attach to a bug report,
+/// since a release build has no console. `RUST_LOG` sets the level of both; without it, info.
+fn init_logging() {
+    let filter = || EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let file = log_dir().map_err(|err| err.to_string()).and_then(|dir| {
+        RotatingLogFile::open(&dir, LOG_FILE_NAME, LOG_FILE_MAX_BYTES)
+            .map_err(|err| format!("{}: {err}", dir.display()))
+    });
+    let (file_layer, file_error) = match file {
+        Ok(file) => (
+            Some(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(std::sync::Mutex::new(file))
+                    .with_filter(filter()),
+            ),
+            None,
+        ),
+        Err(err) => (None, Some(err)),
+    };
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(filter()))
+        .with(file_layer)
         .init();
 
-    info!("App started");
+    if let Some(err) = file_error {
+        warn!("Logs are not written to a file: {err}");
+    }
+
+    // A release build has no console for the default hook to print to, so without this a panic
+    // would leave no trace at all.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic| {
+        error!("{panic}");
+        default_hook(panic);
+    }));
+}
+
+#[tokio::main]
+async fn main() {
+    init_logging();
+    info!("DS2000 {} started", env!("CARGO_PKG_VERSION"));
 
     let (controller, worker_events) = Controller::new().await;
     let controller = Arc::new(Mutex::new(controller));
@@ -89,6 +137,7 @@ async fn main() {
         .manage(ShutdownSignal(shutdown_tx))
         .invoke_handler(tauri::generate_handler![
             commands::app_version,
+            commands::open_logs_folder,
             commands::controller_start,
             commands::ds_set_voice_settings_command,
             commands::serial_set_rgb,

@@ -13,6 +13,7 @@
     <script type="module" src="startupSettings.js"></script>
     <script type="module" src="updater.js"></script>
     <script type="module" src="firmwareUpdater.js"></script>
+    <script type="module" src="logsFolder.js"></script>
 </head>
 
 <body>
@@ -349,6 +350,14 @@
                             <div class="about-update-row">
                                 <p class="about-update-status" id="firmware-status" aria-live="polite"></p>
                                 <button id="firmware-button" class="primary-button" type="button"></button>
+                            </div>
+                        </section>
+
+                        <section class="card about-update">
+                            <h5 class="card-title" data-i18n="logs.section">Troubleshooting</h5>
+                            <div class="about-update-row">
+                                <p class="about-update-status" id="logs-status" data-i18n="logs.description" aria-live="polite">If something goes wrong, attach these files to your bug report.</p>
+                                <button id="logs-button" class="secondary-button" type="button" data-i18n="logs.open">Open logs folder</button>
                             </div>
                         </section>
 

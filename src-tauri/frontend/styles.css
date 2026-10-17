@@ -1167,7 +1167,8 @@ select:focus {
     color: var(--red);
 }
 
-.about-update-row .primary-button {
+.about-update-row .primary-button,
+.about-update-row .secondary-button {
     flex-shrink: 0;
 }
 

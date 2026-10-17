@@ -19,6 +19,8 @@ authors = ["Mechardo Labs"]
 [dependencies]
 tauri = { version = "2.7", features = ["tray-icon"] }
 controller = { path = "src/controller" }
+config = { path = "src/config" }
+common = { path = "src/common" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tauri-plugin-shell = "2.0"

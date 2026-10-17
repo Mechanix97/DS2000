@@ -91,6 +91,12 @@
     "installFailed": "The update could not be downloaded. Try again later.",
     "firmware": "Firmware:"
   },
+  "logs": {
+    "section": "Troubleshooting",
+    "description": "If something goes wrong, attach these files to your bug report.",
+    "open": "Open logs folder",
+    "openFailed": "Could not open the logs folder."
+  },
   "firmwareUpdate": {
     "section": "Device firmware",
     "check": "Check for firmware updates",
