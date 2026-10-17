@@ -1,4 +1,5 @@
 use crate::error::SerialPortError;
+use crate::serial_state::DeviceStatus;
 use crate::serial_state::InCallMessage;
 use crate::serial_state::InMessage;
 use crate::serial_state::OutMessage;
@@ -74,6 +75,38 @@ impl SerialWorker {
             return Ok(st);
         }
         Ok(false)
+    }
+
+    /// The device as last announced, with what it reported in the handshake.
+    pub async fn device_status(&mut self) -> Result<DeviceStatus, SerialPortError> {
+        let om: OutMessage = self
+            .serial_port_handler
+            .call(InCallMessage::Device)
+            .await
+            .map_err(SerialPortError::GenServerError)?;
+        let OutMessage::Device(status) = om else {
+            return Ok(DeviceStatus::Disconnected);
+        };
+        Ok(status)
+    }
+
+    /// Sends the device to USB boot for a firmware update and stops reconnecting until
+    /// [`Self::resume`]. Returns whether there was a device to send.
+    pub async fn enter_bootloader(&mut self) -> Result<bool, SerialPortError> {
+        let om: OutMessage = self
+            .serial_port_handler
+            .call(InCallMessage::EnterBootloader)
+            .await
+            .map_err(SerialPortError::GenServerError)?;
+        Ok(om == OutMessage::EnteredBootloader(true))
+    }
+
+    /// Reconnects again once a firmware update is done or abandoned.
+    pub async fn resume(&mut self) -> Result<(), SerialPortError> {
+        self.serial_port_handler
+            .cast(InMessage::Resume)
+            .await
+            .map_err(SerialPortError::GenServerError)
     }
 
     pub async fn shutdown(&mut self) -> Result<(), SerialPortError> {

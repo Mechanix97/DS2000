@@ -19,6 +19,8 @@ It runs on Windows. Built with Rust and Tauri 2, with a plain HTML, CSS and Java
   optionally minimised.
 - **Automatic device detection** over USB.
 - **In-app updates**: **About → Check for updates** downloads and installs a newer release.
+- **Firmware updates**: **About → Check for firmware updates** installs newer device firmware,
+  with no tools and no button to hold.
 - **English and Spanish** interface.
 
 ## Install
@@ -36,6 +38,12 @@ signature, and the app restarts on the new version. Windows may ask for administ
 The device firmware has to speak the same serial protocol as the app; each release says which one.
 If they do not match, **Settings → Connections** says whether the firmware or the app is out of date. The
 firmware lives in [DS2000-Firmware](https://github.com/Mechanix97/DS2000-Firmware).
+
+**About → Check for firmware updates** installs the latest firmware release for your board: it
+downloads the image, checks it against the release's `SHA256SUMS` and its minisign signature (the
+app only installs firmware signed with the DS2000-Firmware key), restarts the device into its USB
+drive mode, copies the image and waits for the device to come back on the new version. It also works
+on firmware too old to talk to the app. Do not unplug the device while it says "Installing".
 
 ## Connect Discord
 
@@ -76,7 +84,7 @@ Tabs:
   Changes reach the device immediately and are remembered.
 - **Discord**: the credentials above.
 - **Settings**: start with Windows, start minimised, language, and the connection status.
-- **About**: app and firmware versions, and links.
+- **About**: app and firmware versions, app and firmware updates, and links.
 
 The tray icon opens the window on a left click; its menu has **Open DS2000** and **Quit**. Closing
 the window does not quit the app.

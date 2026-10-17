@@ -6,7 +6,9 @@ use crate::error::SerialMessageError;
 use crate::serial_message::SerialFrame;
 
 /// Firmware release, as reported by the device.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+///
+/// Ordered field by field, which is version order because the fields go from major to patch.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct FirmwareVersion {
     pub major: u8,
     pub minor: u8,
@@ -135,6 +137,18 @@ mod tests {
             assert_eq!(Board::from_id(id).id(), id);
         }
         assert_eq!(Board::from_id(0x7F), Board::Unknown(0x7F));
+    }
+
+    #[test]
+    fn versions_order_from_major_to_patch() {
+        let version = |major, minor, patch| FirmwareVersion {
+            major,
+            minor,
+            patch,
+        };
+        assert!(version(0, 2, 9) < version(0, 3, 0));
+        assert!(version(0, 9, 9) < version(1, 0, 0));
+        assert!(version(0, 3, 1) > version(0, 3, 0));
     }
 
     #[test]
