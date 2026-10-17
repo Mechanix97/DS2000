@@ -17,7 +17,7 @@
     },
     "system-tray": {},
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI1NzkzODg5RTFEQ0YyNjgKUldSbzh0emhpVGg1dGRocGJhU2F3S1ZuRmRrU1BrMytIVVlFbjAyck5LTkQ1MlRST1pqRG1OOFcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU5MTlCNDY2MUY0NUU0QTYKUldTbTVFVWZaclFaNlNsNHBsMVE3bWR0L1V0Qjl0c0dJdEg1YWNrRFB4N2h1OUgvb1RSa3EwVTkK",
       "endpoints": [
         "https://github.com/Mechanix97/DS2000/releases/latest/download/latest.json"
       ],
