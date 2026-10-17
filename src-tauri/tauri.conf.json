@@ -15,10 +15,20 @@
     "shell": {
       "open": true
     },
-    "system-tray": {}
+    "system-tray": {},
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI1NzkzODg5RTFEQ0YyNjgKUldSbzh0emhpVGg1dGRocGJhU2F3S1ZuRmRrU1BrMytIVVlFbjAyck5LTkQ1MlRST1pqRG1OOFcK",
+      "endpoints": [
+        "https://github.com/Mechanix97/DS2000/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/ds2000-logo.ico"
     ],

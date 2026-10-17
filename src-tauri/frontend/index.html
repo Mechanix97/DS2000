@@ -11,6 +11,7 @@
     <script type="module" src="serverButtonEvents.js"></script>
     <script type="module" src="discordSetup.js"></script>
     <script type="module" src="startupSettings.js"></script>
+    <script type="module" src="updater.js"></script>
 </head>
 
 <body>
@@ -332,10 +333,18 @@
                             <p class="about-author" data-i18n="about.developedBy">Developed by Mechardo Labs</p>
                         </div>
 
+                        <section class="card about-update">
+                            <h5 class="card-title" data-i18n="about.updatesSection">Updates</h5>
+                            <div class="about-update-row">
+                                <p class="about-update-status" id="update-status" aria-live="polite"></p>
+                                <button id="update-button" class="primary-button" type="button"></button>
+                            </div>
+                            <progress class="about-update-progress" id="update-progress" max="100" hidden></progress>
+                        </section>
+
                         <section class="card about-links">
                             <p class="link-button" id="serviceTerms" data-i18n="about.terms">Terms of service</p>
                             <p class="link-button" id="privacyPolicy" data-i18n="about.privacy">Privacy policy</p>
-                            <p class="about-note" data-i18n="about.updates">Check for updates (TODO)</p>
                         </section>
                     </div>
                 </div>

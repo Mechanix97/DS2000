@@ -99,8 +99,23 @@ jobs:
           rustup toolchain install stable --profile minimal
           cargo +stable install tauri-cli --version "$TAURI_CLI_VERSION" --locked
 
+      # The updater (#30) only installs an MSI signed with the key whose public half is in
+      # tauri.conf.json, so with `createUpdaterArtifacts` the build signs the MSI and fails without
+      # the private key. Checked up front for a clear message instead of a bundler error.
+      - name: Check the update-signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is not set (see the README, Releasing)"
+            exit 1
+          fi
+
       - name: Build the installer
         working-directory: src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build
 
       - name: Locate the MSI
@@ -109,6 +124,10 @@ jobs:
           msi=$(ls src-tauri/target/release/bundle/msi/*.msi)
           if [ "$(echo "$msi" | wc -l)" -ne 1 ]; then
             echo "::error::Expected exactly one MSI, found: $msi"
+            exit 1
+          fi
+          if [ ! -f "$msi.sig" ]; then
+            echo "::error::No update signature next to $msi"
             exit 1
           fi
           echo "path=$msi" >> "$GITHUB_OUTPUT"
@@ -129,12 +148,37 @@ jobs:
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
           echo "SHA-256 $hash"
 
+      # What the app's updater reads from releases/latest/download/latest.json: the version, and
+      # where to download the MSI with the signature it is checked against. `latest` skips drafts,
+      # so an update is offered only once the release is published.
+      - name: Write the update manifest
+        id: manifest
+        env:
+          MSI: ${{ steps.msi.outputs.path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          name=$(basename "$MSI")
+          base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases"
+          manifest="$(dirname "$MSI")/latest.json"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$base/tag/v$VERSION" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg signature "$(cat "$MSI.sig")" \
+            --arg url "$base/download/v$VERSION/$name" \
+            '{version: $version, notes: $notes, pub_date: $date,
+              platforms: {"windows-x86_64": {signature: $signature, url: $url}}}' > "$manifest"
+          echo "path=$manifest" >> "$GITHUB_OUTPUT"
+          cat "$manifest"
+
       - uses: actions/upload-artifact@v4
         with:
           name: installer
           path: |
             ${{ steps.msi.outputs.path }}
             ${{ steps.checksum.outputs.path }}
+            ${{ steps.msi.outputs.path }}.sig
+            ${{ steps.manifest.outputs.path }}
           if-no-files-found: error
 
       # A draft, so publishing stays a human decision. Re-running the workflow for the same tag
@@ -145,11 +189,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MSI: ${{ steps.msi.outputs.path }}
           CHECKSUM: ${{ steps.checksum.outputs.path }}
+          MANIFEST: ${{ steps.manifest.outputs.path }}
           HASH: ${{ steps.checksum.outputs.hash }}
           PROTOCOL: ${{ steps.version.outputs.protocol }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" "$MSI.sig" "$MANIFEST" --clobber
             exit 0
           fi
           name=$(basename "$MSI")
@@ -175,6 +220,11 @@ jobs:
 
           In PowerShell, \`Get-FileHash $name\` prints the same hash (in upper case). The
           \`$name.sha256\` file below holds it too, for \`sha256sum -c $name.sha256\`.
+
+          ## Updating
+
+          From this version on, **About → Check for updates** installs newer releases in place.
+          \`latest.json\` and \`$name.sig\` below are what it reads; you do not need them.
           EOF
-          gh release create "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" --draft --verify-tag \
+          gh release create "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" "$MSI.sig" "$MANIFEST" --draft --verify-tag \
             --title "DS2000 $GITHUB_REF_NAME" --notes-file notes.md --generate-notes

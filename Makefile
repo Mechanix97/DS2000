@@ -13,8 +13,14 @@ deps:
 	@cargo tauri --version >NUL 2>&1 || cargo install tauri-cli --version "^2.0.0" --locked
 	@cd src-tauri && cd frontend && npm install
 	
+# The release build signs the MSI for the updater (#30) and needs the private key. Without
+# TAURI_SIGNING_PRIVATE_KEY set, a local build skips the signature instead of failing on it.
 build-installer-windows:
+ifdef TAURI_SIGNING_PRIVATE_KEY
 	@cd src-tauri && cargo tauri build
+else
+	@cd src-tauri && cargo tauri build --config "{\"bundle\":{\"createUpdaterArtifacts\":false}}"
+endif
 
 clean:
 	@cd src-tauri && cargo clean

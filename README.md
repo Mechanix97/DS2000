@@ -18,6 +18,7 @@ It runs on Windows. Built with Rust and Tauri 2, with a plain HTML, CSS and Java
 - **Tray app**: closing the window keeps it running in the tray. Optional start with Windows,
   optionally minimised.
 - **Automatic device detection** over USB.
+- **In-app updates**: **About → Check for updates** downloads and installs a newer release.
 - **English and Spanish** interface.
 
 ## Install
@@ -28,6 +29,9 @@ and run it.
 The installer is unsigned, so SmartScreen warns the first time: **More info → Run anyway**.
 To check the download, `Get-FileHash <file>.msi` in PowerShell must match the SHA-256 in the
 release notes.
+
+After that, **About → Check for updates** installs newer releases: it downloads the MSI, checks its
+signature, and the app restarts on the new version. Windows may ask for administrator permission.
 
 The device firmware has to speak the same serial protocol as the app; each release says which one.
 If they do not match, **Settings → Connections** says whether the firmware or the app is out of date. The
@@ -108,6 +112,19 @@ make run    # cargo tauri dev: Vite with hot reload plus the Rust backend
 
 CI runs format, lint and tests on every pull request. Pushing a `v*` tag builds the MSI and attaches
 it to a draft release. The version comes from `src-tauri/Cargo.toml`.
+
+### Releasing and updates
+
+The release build signs the MSI with an update-signing key (not a code-signing certificate) and
+publishes `latest.json`, which the app reads from `releases/latest/download/latest.json`. The app
+only installs an MSI signed with the key whose public half is in `tauri.conf.json`
+(`plugins.updater.pubkey`), and drafts are not `latest`, so nothing is offered until the release is
+published.
+
+- The private key and its password are the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep a copy elsewhere: if the key is lost, installed copies
+  can no longer be updated and users have to reinstall by hand.
+- A local `make build-installer-windows` signs only when `TAURI_SIGNING_PRIVATE_KEY` is set.
 
 Logging uses `RUST_LOG`, for example `RUST_LOG=serial=debug,discord=info`.
 

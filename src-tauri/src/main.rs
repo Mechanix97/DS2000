@@ -4,6 +4,7 @@ use controller::commands;
 use controller::controller::Controller;
 use controller::coordinator::{Coordinator, UiRefreshHandle};
 use controller::tray::{MENU_QUIT, MENU_SHOW, TRAY_ID, tray_menu};
+use controller::updater::{self, PendingUpdate};
 use std::sync::Arc;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -79,7 +80,9 @@ async fn main() {
             None,
         ))
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(controller.clone())
+        .manage(PendingUpdate::default())
         .manage(ui_refresh_tx.clone())
         .manage(ShutdownSignal(shutdown_tx))
         .invoke_handler(tauri::generate_handler![
@@ -94,6 +97,8 @@ async fn main() {
             commands::set_startup_preferences,
             commands::ui_language,
             commands::set_ui_language,
+            updater::update_check,
+            updater::update_install,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

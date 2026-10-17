@@ -76,7 +76,17 @@
     "developedBy": "Desarrollado por Mechardo Labs",
     "terms": "Términos de servicio",
     "privacy": "Política de privacidad",
-    "updates": "Buscar actualizaciones (TODO)",
+    "updatesSection": "Actualizaciones",
+    "checkUpdates": "Buscar actualizaciones",
+    "checking": "Buscando actualizaciones…",
+    "upToDate": "DS 2000 está actualizado.",
+    "available": "Hay una nueva versión: {version}.",
+    "install": "Actualizar a {version}",
+    "downloading": "Descargando la actualización… {percent}",
+    "downloadingNoSize": "Descargando la actualización…",
+    "installing": "Instalando. DS 2000 se reiniciará al terminar.",
+    "checkFailed": "No se pudo buscar actualizaciones. Revisa la conexión a internet y vuelve a intentarlo.",
+    "installFailed": "No se pudo descargar la actualización. Inténtalo más tarde.",
     "firmware": "Firmware:"
   },
   "status": {
