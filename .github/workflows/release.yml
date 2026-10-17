@@ -39,8 +39,11 @@ jobs:
 
       # The updater (#30) only installs an MSI signed with the key whose public half is in
       # tauri.conf.json, so with `createUpdaterArtifacts` the build signs the MSI and fails without
-      # the private key. Checked up front for a clear message instead of a bundler error.
+      # the private key. Checked up front for a clear message instead of a bundler error. Only a tag
+      # signs: pull requests from forks get no secrets, and a pull request build must not come out
+      # as an MSI installed copies would accept.
       - name: Check the update-signing key
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
@@ -111,22 +114,32 @@ jobs:
           rustup toolchain install stable --profile minimal
           cargo +stable install tauri-cli --version "$TAURI_CLI_VERSION" --locked
 
+      # The key is only in scope on a tag; a pull request builds the same MSI unsigned, as the
+      # Makefile does without the key.
       - name: Build the installer
         working-directory: src-tauri
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo tauri build
+          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          RELEASE: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          if [ "$RELEASE" = true ]; then
+            cargo tauri build
+          else
+            cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          fi
 
       - name: Locate the MSI
         id: msi
+        env:
+          RELEASE: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
           msi=$(ls src-tauri/target/release/bundle/msi/*.msi)
           if [ "$(echo "$msi" | wc -l)" -ne 1 ]; then
             echo "::error::Expected exactly one MSI, found: $msi"
             exit 1
           fi
-          if [ ! -f "$msi.sig" ]; then
+          if [ "$RELEASE" = true ] && [ ! -f "$msi.sig" ]; then
             echo "::error::No update signature next to $msi"
             exit 1
           fi
@@ -150,9 +163,10 @@ jobs:
 
       # What the app's updater reads from releases/latest/download/latest.json: the version, and
       # where to download the MSI with the signature it is checked against. `latest` skips drafts,
-      # so an update is offered only once the release is published.
+      # so an update is offered only once the release is published. Needs the signature, so tags only.
       - name: Write the update manifest
         id: manifest
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           MSI: ${{ steps.msi.outputs.path }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -171,6 +185,7 @@ jobs:
           echo "path=$manifest" >> "$GITHUB_OUTPUT"
           cat "$manifest"
 
+      # On a pull request the .sig and the manifest do not exist; a path matching nothing is skipped.
       - uses: actions/upload-artifact@v4
         with:
           name: installer
