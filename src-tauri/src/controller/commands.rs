@@ -2,6 +2,7 @@ use crate::controller::Controller;
 use crate::coordinator::UiRefreshHandle;
 use crate::tray::{TRAY_ID, tray_menu};
 use common::rgb_update::{LedRgb, RGBConfig, RGBMode};
+use config::config::log_dir;
 use config::credentials::URL_DISCORD_SETUP_GUIDE;
 use config::language::Language;
 
@@ -226,6 +227,25 @@ fn relabel_tray(app: &AppHandle, language: Language) -> Result<(), String> {
 #[tauri::command]
 pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+/// Opens the folder with the log files in Explorer, for attaching them to a bug report.
+#[tauri::command]
+pub fn open_logs_folder() -> Result<(), String> {
+    let dir = log_dir().map_err(|err| err.to_string())?;
+    // Normally there already, unless the log file could not be opened at startup.
+    std::fs::create_dir_all(&dir).map_err(|err| {
+        warn!("Could not create {}: {err}", dir.display());
+        "Could not open the logs folder".to_owned()
+    })?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map(drop)
+        .map_err(|err| {
+            warn!("Could not open {} in Explorer: {err}", dir.display());
+            "Could not open the logs folder".to_owned()
+        })
 }
 
 #[tauri::command]

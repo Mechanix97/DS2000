@@ -95,6 +95,7 @@ the window does not quit the app.
 |---|---|
 | Settings (Discord client id, RGB, language, startup options, last port) | `%APPDATA%\Mechardo\config.json` |
 | Discord client secret and tokens | Windows Credential Manager, service `DS2000` |
+| Logs (`ds2000.log`, and `ds2000.1.log` once it fills up; 5 MB at most) | `%APPDATA%\Mechardo\logs` |
 
 No secret is written to the config file.
 
@@ -134,7 +135,8 @@ published.
   can no longer be updated and users have to reinstall by hand.
 - A local `make build-installer-windows` signs only when `TAURI_SIGNING_PRIVATE_KEY` is set.
 
-Logging uses `RUST_LOG`, for example `RUST_LOG=serial=debug,discord=info`.
+Logging uses `RUST_LOG`, for example `RUST_LOG=serial=debug,discord=info`; without it, `info`. The
+same lines go to the console and to the log file.
 
 ### Layout
 
@@ -161,7 +163,8 @@ paired pull requests in this repository and the firmware's.
 Issues and pull requests are welcome. Branch from `main` and open a pull request; `main` is never
 pushed to directly. Before opening it, run `cargo fmt`, `make lint` and `make test`. Commit
 messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`,
-`docs:`, ...). For a bug, include the steps, what you expected, and a log from `make run-debug`.
+`docs:`, ...). For a bug, include the steps, what you expected, and the log files: **About → Open logs folder**
+in the app, or a log from `make run-debug`.
 
 ## Related projects
 
