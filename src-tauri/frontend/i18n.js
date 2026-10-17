@@ -17,17 +17,23 @@ function lookup(catalog, key) {
   return key.split('.').reduce((node, part) => (node == null ? undefined : node[part]), catalog);
 }
 
-/// Translates a dotted key, e.g. `discord.connect`.
-export function t(key) {
+/// Fills `{name}` placeholders, every occurrence of each.
+function interpolate(text, values) {
+  return Object.entries(values).reduce((result, [name, value]) => result.replaceAll(`{${name}}`, value), text);
+}
+
+/// Translates a dotted key, e.g. `discord.connect`, filling placeholders from `values`, e.g.
+/// `t('about.install', { version })`.
+export function t(key, values = {}) {
   const translated = lookup(TRANSLATIONS[current], key);
   if (typeof translated === 'string') {
-    return translated;
+    return interpolate(translated, values);
   }
 
   const fallback = lookup(TRANSLATIONS[FALLBACK], key);
   if (typeof fallback === 'string') {
     console.warn(`Missing ${current} translation for "${key}", falling back to ${FALLBACK}`);
-    return fallback;
+    return interpolate(fallback, values);
   }
 
   // Showing the key is ugly but debuggable, and better than a blank label.

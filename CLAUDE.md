@@ -40,8 +40,8 @@ RPC and drives the device over a serial protocol.
 
 ```
 src-tauri/src/
-├── main.rs                      # Tauri setup: plugins (single instance, autostart, shell), tray,
-│                                # window (close hides it), quit/shutdown
+├── main.rs                      # Tauri setup: plugins (single instance, autostart, shell,
+│                                # updater), tray, window (close hides it), quit/shutdown
 ├── backend/
 │   ├── discord/                 # crate `discord`
 │   │   ├── discord_worker.rs    # Public handle used by the controller
@@ -63,6 +63,7 @@ src-tauri/src/
 │   │                            # to the frontend
 │   ├── commands.rs              # Tauri commands
 │   ├── tray.rs                  # Tray menu (rebuilt when the language changes)
+│   ├── updater.rs               # In-app updates: check latest.json, download, install
 │   └── error.rs
 ├── config/                      # crate `config`
 │   ├── config.rs                # %APPDATA%\Mechardo\config.json
@@ -76,6 +77,7 @@ src-tauri/frontend/
 ├── backendEvents.js             # Backend events, RGB controls, mic/headset toggles
 ├── discordSetup.js              # Discord tab: credentials, connect, unlink
 ├── startupSettings.js           # Settings tab: autostart, start minimised, language
+├── updater.js                   # About tab: check for updates and install them
 ├── serverButtonEvents.js        # External links
 ├── i18n.js                      # Bundled translations; the language is persisted by the backend
 └── translations/{en,es}.json    # en is the fallback and must be complete
@@ -88,7 +90,8 @@ src-tauri/frontend/
 **Commands** (`controller/commands.rs`, registered in `main.rs`): `app_version`, `controller_start`,
 `ds_set_voice_settings_command`, `serial_set_rgb`, `discord_credentials_status`,
 `discord_set_credentials`, `discord_clear_credentials`, `startup_preferences`,
-`set_startup_preferences`, `ui_language`, `set_ui_language`.
+`set_startup_preferences`, `ui_language`, `set_ui_language`; `update_check` and `update_install`
+in `controller/updater.rs`.
 
 **Events** (emitted by `coordinator.rs`): `DISCORD_CONNECTION_STATUS_EVENT`,
 `DISCORD_VOICE_SETTINGS_EVENT`, `DISCORD_AWAITING_AUTHORIZATION_EVENT`,
@@ -144,7 +147,16 @@ cd src-tauri/frontend && npm run build
 step with `.github/workflows/ci.yml`.
 
 The version comes from `src-tauri/Cargo.toml`. Pushing a `v*` tag runs `release.yml`, which builds
-the MSI and attaches it to a draft release.
+the MSI, signs it for the updater (secrets `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), writes `latest.json` and attaches all of it to a draft
+release. The app offers an update only once the release is published.
+
+### Updates
+
+`controller/updater.rs` wraps `tauri-plugin-updater`. Installing shuts the controller down first
+(config saved, port and pipe released), because on Windows the plugin runs `msiexec` and exits the
+process itself. Never change `plugins.updater.pubkey` without a plan: installed copies only accept
+MSIs signed with the matching private key.
 
 ## Common Development Tasks
 
@@ -186,6 +198,5 @@ Every string goes through `i18n.js`. Add the key to `translations/en.json` (requ
 - The Discord setup guide linked from the Discord tab (`URL_DISCORD_SETUP_GUIDE`,
   `mechardo3d.xyz/ds2000/discord-setup`) lives in the site repo (Mechanix97/mechardo3d#112); its
   screenshots are pending (mechardo3d#110, #111). The README has the steps too.
-- The About tab's "Check for updates" is a placeholder (#30).
 - The MSI is unsigned (#29).
 - Windows only. Nothing has been tested on macOS or Linux.

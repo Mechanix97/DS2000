@@ -37,6 +37,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The updater (#30) only installs an MSI signed with the key whose public half is in
+      # tauri.conf.json, so with `createUpdaterArtifacts` the build signs the MSI and fails without
+      # the private key. Checked up front for a clear message instead of a bundler error. Only a tag
+      # signs: pull requests from forks get no secrets, and a pull request build must not come out
+      # as an MSI installed copies would accept.
+      - name: Check the update-signing key
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is not set (see the README, Releasing)"
+            exit 1
+          fi
+
       # rust-toolchain.toml at the repository root is the single source of the toolchain, as in ci.yml.
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
@@ -99,16 +114,33 @@ jobs:
           rustup toolchain install stable --profile minimal
           cargo +stable install tauri-cli --version "$TAURI_CLI_VERSION" --locked
 
+      # The key is only in scope on a tag; a pull request builds the same MSI unsigned, as the
+      # Makefile does without the key.
       - name: Build the installer
         working-directory: src-tauri
-        run: cargo tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          RELEASE: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          if [ "$RELEASE" = true ]; then
+            cargo tauri build
+          else
+            cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          fi
 
       - name: Locate the MSI
         id: msi
+        env:
+          RELEASE: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
           msi=$(ls src-tauri/target/release/bundle/msi/*.msi)
           if [ "$(echo "$msi" | wc -l)" -ne 1 ]; then
             echo "::error::Expected exactly one MSI, found: $msi"
+            exit 1
+          fi
+          if [ "$RELEASE" = true ] && [ ! -f "$msi.sig" ]; then
+            echo "::error::No update signature next to $msi"
             exit 1
           fi
           echo "path=$msi" >> "$GITHUB_OUTPUT"
@@ -129,27 +161,61 @@ jobs:
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
           echo "SHA-256 $hash"
 
+      # What the app's updater reads from releases/latest/download/latest.json: the version, and
+      # where to download the MSI with the signature it is checked against. `latest` skips drafts,
+      # so an update is offered only once the release is published. Needs the signature, so tags only.
+      - name: Write the update manifest
+        id: manifest
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          MSI: ${{ steps.msi.outputs.path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          name=$(basename "$MSI")
+          base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases"
+          manifest="$(dirname "$MSI")/latest.json"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$base/tag/v$VERSION" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg signature "$(cat "$MSI.sig")" \
+            --arg url "$base/download/v$VERSION/$name" \
+            '{version: $version, notes: $notes, pub_date: $date,
+              platforms: {"windows-x86_64": {signature: $signature, url: $url}}}' > "$manifest"
+          echo "path=$manifest" >> "$GITHUB_OUTPUT"
+          cat "$manifest"
+
+      # On a pull request the .sig and the manifest do not exist; a path matching nothing is skipped.
       - uses: actions/upload-artifact@v4
         with:
           name: installer
           path: |
             ${{ steps.msi.outputs.path }}
             ${{ steps.checksum.outputs.path }}
+            ${{ steps.msi.outputs.path }}.sig
+            ${{ steps.manifest.outputs.path }}
           if-no-files-found: error
 
       # A draft, so publishing stays a human decision. Re-running the workflow for the same tag
-      # replaces the MSI and its checksum instead of failing on the existing release.
+      # replaces the files of a draft, but never of a published release: installed copies read its
+      # latest.json, and while the files were replaced one by one it would point at an MSI whose
+      # signature does not match.
       - name: Attach the MSI to a draft release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           MSI: ${{ steps.msi.outputs.path }}
           CHECKSUM: ${{ steps.checksum.outputs.path }}
+          MANIFEST: ${{ steps.manifest.outputs.path }}
           HASH: ${{ steps.checksum.outputs.hash }}
           PROTOCOL: ${{ steps.version.outputs.protocol }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" --clobber
+            if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" != true ]; then
+              echo "::error::Release $GITHUB_REF_NAME is already published; tag a new version instead"
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" "$MSI.sig" "$MANIFEST" --clobber
             exit 0
           fi
           name=$(basename "$MSI")
@@ -175,6 +241,11 @@ jobs:
 
           In PowerShell, \`Get-FileHash $name\` prints the same hash (in upper case). The
           \`$name.sha256\` file below holds it too, for \`sha256sum -c $name.sha256\`.
+
+          ## Updating
+
+          From this version on, **About → Check for updates** installs newer releases in place.
+          \`latest.json\` and \`$name.sig\` below are what it reads; you do not need them.
           EOF
-          gh release create "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" --draft --verify-tag \
+          gh release create "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" "$MSI.sig" "$MANIFEST" --draft --verify-tag \
             --title "DS2000 $GITHUB_REF_NAME" --notes-file notes.md --generate-notes

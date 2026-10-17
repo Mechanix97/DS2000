@@ -32,6 +32,7 @@ tauri-plugin-autostart.workspace = true
 # Two instances cannot share the serial port or the Discord pipe, so the second has to hand over
 # to the first rather than compete with it.
 tauri-plugin-single-instance = "2.4.3"
+tauri-plugin-updater.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2.1.0", features = [] }
@@ -50,6 +51,11 @@ tauri-plugin-shell = "2.0"
 # the registry on Windows and a different mechanism per platform; the official plugin is the
 # smaller commitment.
 tauri-plugin-autostart = "2.5.1"
+# In-app updates (#30): downloads the MSI named in the release's latest.json, checks it against the
+# update-signing public key in tauri.conf.json, and runs it. Hand-rolled, this is an HTTP client, a
+# minisign verifier and the msiexec hand-off, and getting the verification wrong is a remote code
+# execution hole.
+tauri-plugin-updater = "2"
 
 rand = "0.9"
 serde = { version = "1.0", features = ["derive"] }

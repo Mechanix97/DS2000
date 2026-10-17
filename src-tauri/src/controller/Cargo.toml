@@ -13,6 +13,7 @@ tracing.workspace = true
 tauri.workspace = true
 tauri-plugin-shell.workspace = true
 tauri-plugin-autostart.workspace = true
+tauri-plugin-updater.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 serde.workspace = true
