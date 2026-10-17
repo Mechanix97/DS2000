@@ -6,7 +6,7 @@
 
 use crate::credentials::{DISCORD_SCOPES, DiscordCredentials};
 use crate::error::DiscordError;
-use crate::ipc::{DiscordConnectionState, IpcClient, IpcEvent};
+use crate::ipc::{DiscordConnectionState, DiscordUser, IpcClient, IpcEvent};
 use crate::oauth;
 use spawned_concurrency::tasks::{
     CallResponse, CastResponse, GenServer, GenServerHandle, send_after,
@@ -66,7 +66,7 @@ pub struct DiscordVoiceSettings {
 ///
 /// Emitted only on an actual change, so a consumer can treat every one of these as news and does
 /// not need to compare against what it already knew.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum DiscordWorkerEvent {
     VoiceSettingsChanged(DiscordVoiceSettings),
     ConnectionChanged {
@@ -79,6 +79,13 @@ pub enum DiscordWorkerEvent {
     /// minimised to the tray it is queued and invisible, and the app otherwise just sits there
     /// looking broken for three minutes.
     AwaitingAuthorization,
+    /// The account the session is authenticated as, announced on every successful connection.
+    UserChanged(Option<DiscordUser>),
+    /// Whether Discord itself is running, judged by whether its RPC pipe is there. Lets the UI
+    /// say "Discord is closed" instead of a vaguer "not connected".
+    RunningChanged {
+        running: bool,
+    },
 }
 
 /// `Clone` is required by the actor framework, not by this code: the state is moved through each
@@ -102,6 +109,8 @@ pub struct DiscordState {
     observer: mpsc::UnboundedSender<DiscordWorkerEvent>,
     /// Last connection state announced, so `ConnectionChanged` really means changed.
     announced_connected: bool,
+    /// Last "is Discord running" announced; `None` until the first attempt says either way.
+    announced_running: Option<bool>,
     reconnect_backoff: Duration,
     /// Guards against several reconnect timers piling up, which would defeat the backoff.
     reconnect_scheduled: bool,
@@ -126,6 +135,7 @@ impl DiscordState {
             voice_settings,
             observer,
             announced_connected: false,
+            announced_running: None,
             reconnect_backoff: RECONNECT_BACKOFF_MIN,
             reconnect_scheduled: false,
             shutdown: false,
@@ -210,6 +220,17 @@ impl DiscordState {
             .send(DiscordWorkerEvent::ConnectionChanged { connected });
     }
 
+    /// Announces whether Discord is running, once per change.
+    fn announce_running(&mut self, running: bool) {
+        if self.announced_running == Some(running) {
+            return;
+        }
+        self.announced_running = Some(running);
+        let _ = self
+            .observer
+            .send(DiscordWorkerEvent::RunningChanged { running });
+    }
+
     /// Schedules another attempt, doubling the delay up to the ceiling.
     fn schedule_reconnect(&mut self, handle: &GenServerHandle<Self>) {
         if self.shutdown || self.credentials.is_none() || self.reconnect_scheduled {
@@ -264,6 +285,7 @@ impl From<DiscordError> for ConnectFailure {
 #[derive(Clone)]
 pub struct Connection {
     client: IpcClient,
+    user: Option<DiscordUser>,
     tokens: (Option<String>, Option<String>),
     voice_settings: DiscordVoiceSettings,
 }
@@ -283,7 +305,7 @@ async fn connect(
     client.handshake(&credentials.client_id).await?;
 
     let (token, tokens) = obtain_token(&mut client, &credentials, &observer).await?;
-    client.authenticate(&token).await?;
+    let user = client.authenticate(&token).await?;
 
     // Subscribe before reading the current value: the other order leaves a window where a change
     // is neither in the snapshot nor delivered as an event.
@@ -293,6 +315,7 @@ async fn connect(
 
     Ok::<Connection, DiscordError>(Connection {
         client,
+        user,
         tokens,
         voice_settings: DiscordVoiceSettings { mute, deafen },
     })
@@ -388,11 +411,20 @@ impl GenServer for DiscordState {
                         self.set_tokens(access, refresh);
                         // Reset the backoff so a later drop retries promptly.
                         self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
+                        self.announce_running(true);
                         self.announce_connection();
+                        let _ = self
+                            .observer
+                            .send(DiscordWorkerEvent::UserChanged(connection.user));
                         self.update_voice_settings(connection.voice_settings).await;
                     }
                     Err(failure) => {
                         self.ipc_client.disconnect().await;
+                        // Any failure past opening the pipe means Discord is there.
+                        self.announce_running(!matches!(
+                            failure,
+                            ConnectFailure::DiscordNotRunning
+                        ));
                         self.announce_connection();
 
                         match failure {
@@ -535,6 +567,7 @@ mod tests {
                 voice_settings: Arc::new(Mutex::new(DiscordVoiceSettings::default())),
                 observer,
                 announced_connected: false,
+                announced_running: None,
                 reconnect_backoff: RECONNECT_BACKOFF_MIN,
                 reconnect_scheduled: false,
                 shutdown: false,
@@ -566,6 +599,27 @@ mod tests {
         );
 
         assert_eq!(*state.voice_settings.lock().await, muted);
+    }
+
+    #[tokio::test]
+    async fn whether_discord_runs_is_announced_once_per_change() {
+        let (mut state, mut observed) = state();
+
+        state.announce_running(false);
+        assert_eq!(
+            observed.try_recv().expect("an announcement"),
+            DiscordWorkerEvent::RunningChanged { running: false }
+        );
+
+        // Every retry while Discord stays closed says the same thing: nothing new to announce.
+        state.announce_running(false);
+        assert!(observed.try_recv().is_err());
+
+        state.announce_running(true);
+        assert_eq!(
+            observed.try_recv().expect("an announcement"),
+            DiscordWorkerEvent::RunningChanged { running: true }
+        );
     }
 
     #[tokio::test]

@@ -11,6 +11,7 @@
 //! waiting on that nonce, events go to the event channel. Nothing else ever reads.
 
 use common::task_guard::AbortOnDrop;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,6 +28,46 @@ use {std::env::var, tokio::net::UnixStream};
 
 use crate::error::DiscordError;
 use crate::pipe_message::{HEADER_LEN, Opcode, PipeMessage, ResponseKind, error_message};
+
+/// The account an RPC session is authenticated as, from the `AUTHENTICATE` reply.
+///
+/// Only what the status panel shows. It is not secret, but it identifies the user, so it is kept
+/// in memory and never written to the config file or the logs.
+#[derive(Deserialize, Clone, PartialEq, Eq)]
+pub struct DiscordUser {
+    pub id: String,
+    pub username: String,
+    /// The display name, when the user set one.
+    pub global_name: Option<String>,
+    /// Hash of the avatar image, or `None` for Discord's default avatar.
+    pub avatar: Option<String>,
+}
+
+impl DiscordUser {
+    /// The name Discord itself shows: the display name, falling back to the username.
+    pub fn display_name(&self) -> &str {
+        self.global_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .unwrap_or(&self.username)
+    }
+
+    /// The avatar on Discord's CDN, at the size the panel draws it at twice over.
+    pub fn avatar_url(&self) -> Option<String> {
+        let hash = self.avatar.as_deref()?;
+        Some(format!(
+            "https://cdn.discordapp.com/avatars/{}/{hash}.png?size=64",
+            self.id
+        ))
+    }
+}
+
+/// Redacting, like the credentials: these end up in logs through the worker events.
+impl std::fmt::Debug for DiscordUser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DiscordUser { .. }")
+    }
+}
 
 /// The pipe's concrete type, so the rest of the module stays platform independent.
 #[cfg(windows)]
@@ -289,22 +330,27 @@ impl IpcClient {
         Ok(code)
     }
 
-    pub async fn authenticate(&mut self, token: &str) -> Result<(), DiscordError> {
+    /// Opens the RPC session with `token`, returning the account it belongs to.
+    ///
+    /// The account is `None` when the reply does not carry a readable one: the panel then shows
+    /// a generic name, which is no reason to fail a working session.
+    pub async fn authenticate(&mut self, token: &str) -> Result<Option<DiscordUser>, DiscordError> {
         if self.state == DiscordConnectionState::NotConnected {
             return Err(DiscordError::ClientNotConnected);
         }
-        self.request(|nonce| {
-            PipeMessage::command(
-                "AUTHENTICATE",
-                nonce,
-                Some(json!({ "access_token": token })),
-            )
-        })
-        .await?;
+        let payload = self
+            .request(|nonce| {
+                PipeMessage::command(
+                    "AUTHENTICATE",
+                    nonce,
+                    Some(json!({ "access_token": token })),
+                )
+            })
+            .await?;
 
         info!("Discord connected");
         self.state = DiscordConnectionState::Authenticated;
-        Ok(())
+        Ok(user_from_authenticate(&payload))
     }
 
     /// Subscribes to voice settings changes.
@@ -493,6 +539,17 @@ async fn read_loop(
     let _ = events.send(IpcEvent::Disconnected);
 }
 
+/// The account in an `AUTHENTICATE` reply, if it carries a readable one.
+fn user_from_authenticate(payload: &Value) -> Option<DiscordUser> {
+    match serde_json::from_value(payload["data"]["user"].clone()) {
+        Ok(user) => Some(user),
+        Err(err) => {
+            debug!("The AUTHENTICATE reply has no readable user: {err}");
+            None
+        }
+    }
+}
+
 async fn read_frame(reader: &mut ReadHalf<Transport>) -> Result<PipeMessage, DiscordError> {
     let mut header = [0u8; HEADER_LEN];
     reader.read_exact(&mut header).await?;
@@ -510,6 +567,51 @@ async fn read_frame(reader: &mut ReadHalf<Transport>) -> Result<PipeMessage, Dis
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn authenticate_reply(user: Value) -> Value {
+        json!({ "cmd": "AUTHENTICATE", "data": { "scopes": ["rpc"], "user": user } })
+    }
+
+    #[test]
+    fn the_user_is_read_out_of_the_authenticate_reply() {
+        let reply = authenticate_reply(json!({
+            "id": "80351110224678912", "username": "mechardo", "discriminator": "0",
+            "global_name": "Mechardo", "avatar": "8342729096ea3675442027381ff50dfe"
+        }));
+        let user = user_from_authenticate(&reply).expect("a user");
+
+        assert_eq!(user.display_name(), "Mechardo");
+        assert_eq!(
+            user.avatar_url().as_deref(),
+            Some(
+                "https://cdn.discordapp.com/avatars/80351110224678912/8342729096ea3675442027381ff50dfe.png?size=64"
+            )
+        );
+    }
+
+    #[test]
+    fn a_user_without_display_name_or_avatar_falls_back() {
+        let reply = authenticate_reply(json!({
+            "id": "1", "username": "mechardo", "global_name": null, "avatar": null
+        }));
+        let user = user_from_authenticate(&reply).expect("a user");
+
+        assert_eq!(user.display_name(), "mechardo");
+        assert_eq!(user.avatar_url(), None);
+    }
+
+    #[test]
+    fn a_reply_without_a_user_is_not_an_error() {
+        assert_eq!(user_from_authenticate(&json!({ "data": {} })), None);
+    }
+
+    #[test]
+    fn the_user_is_redacted_in_logs() {
+        let reply = authenticate_reply(json!({ "id": "1", "username": "mechardo" }));
+        let user = user_from_authenticate(&reply).expect("a user");
+
+        assert!(!format!("{user:?}").contains("mechardo"));
+    }
 
     #[test]
     fn voice_settings_are_read_out_of_a_payload() {

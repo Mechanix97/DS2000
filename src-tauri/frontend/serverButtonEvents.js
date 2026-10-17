@@ -1,42 +1,25 @@
 import { open } from '@tauri-apps/plugin-shell';
+import { openSitePage } from './links.js';
 
-const DS2000Button = document.getElementById('DS2000-button');
-const MechardoLabsButton = document.getElementById('Mechardo-Labs-button');
-const instagramButton = document.getElementById('instagram-button');
-const twitterButton = document.getElementById('twitter-button');
-const youtubeButton = document.getElementById('youtube-button');
-const DiscordInviteButton = document.getElementById('discord-invite-button');
-const ServiceTermsButton = document.getElementById('serviceTerms');
-const PrivacyPolicyButton = document.getElementById('privacyPolicy');
+// Pages on the project site follow the app's language; the social networks have only one.
+const SITE_LINKS = {
+  'DS2000-button': 'ds2000',
+  'Mechardo-Labs-button': 'home',
+  serviceTerms: 'termsOfService',
+  privacyPolicy: 'privacyPolicy',
+};
 
-DS2000Button.addEventListener('click', async () => {
-    await open('https://mechardo3d.xyz/ds2000');
-});
+const EXTERNAL_LINKS = {
+  'instagram-button': 'https://www.instagram.com/mechardo3d/',
+  'twitter-button': 'https://x.com/MechardoLabs',
+  'youtube-button': 'https://www.youtube.com/@MechardoLabs',
+  'discord-invite-button': 'https://discord.gg/VtbFAGJe86',
+};
 
-MechardoLabsButton.addEventListener('click', async () => {
-    await open('https://mechardo3d.xyz');
-});
+for (const [id, page] of Object.entries(SITE_LINKS)) {
+  document.getElementById(id).addEventListener('click', () => openSitePage(page));
+}
 
-instagramButton.addEventListener('click', async () => {
-    await open('https://www.instagram.com/mechardo3d/');
-});
-
-twitterButton.addEventListener('click', async () => {
-    await open('https://x.com/MechardoLabs');
-});
-
-youtubeButton.addEventListener('click', async () => {
-    await open('https://www.youtube.com/@MechardoLabs');
-});
-
-DiscordInviteButton.addEventListener('click', async () => {
-    await open('https://discord.gg/VtbFAGJe86');
-});
-
-ServiceTermsButton.addEventListener('click', async () => {
-    await open('https://www.mechardo3d.xyz/ds2000/terms-of-service');
-});
-
-PrivacyPolicyButton.addEventListener('click', async () => {
-    await open('https://www.mechardo3d.xyz/ds2000/privacy-policy');
-});
+for (const [id, url] of Object.entries(EXTERNAL_LINKS)) {
+  document.getElementById(id).addEventListener('click', () => open(url));
+}

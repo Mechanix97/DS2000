@@ -1,6 +1,7 @@
 import { invoke, Channel } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-shell'
 import { t, ready, onLanguageChange } from './i18n.js'
+import { setAppUpdateAvailable } from './statusPanel.js'
 
 // About tab: check for a newer release and install it (#30). The backend does the work
 // (controller/updater.rs); this only tracks what to show.
@@ -9,6 +10,9 @@ const statusLabel = document.getElementById('update-status');
 const button = document.getElementById('update-button');
 const progressBar = document.getElementById('update-progress');
 const releaseLink = document.getElementById('update-release');
+
+// The app lives in the tray for days, so it also looks on its own: at start and then daily.
+const AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // idle | checking | upToDate | available | checkFailed | checkUnavailable | downloading |
 // installing | installFailed
@@ -60,11 +64,20 @@ function render() {
 
 function setState(next) {
   state = next;
+  setAppUpdateAvailable(state === 'available' ? version : null);
   render();
 }
 
-async function checkForUpdates() {
-  setState('checking');
+/// `quiet` is the automatic check: it shows nothing while it runs and nothing if it fails, so a
+/// machine without network does not greet the user with an error they did not ask for.
+async function checkForUpdates({ quiet = false } = {}) {
+  if (quiet && state !== 'idle' && state !== 'upToDate') {
+    return;
+  }
+  const previous = state;
+  if (!quiet) {
+    setState('checking');
+  }
   try {
     const update = await invoke('update_check');
     if (update) {
@@ -77,7 +90,7 @@ async function checkForUpdates() {
     }
   } catch (error) {
     console.warn('Could not check for updates:', error);
-    setState(error === 'unavailable' ? 'checkUnavailable' : 'checkFailed');
+    setState(quiet ? previous : error === 'unavailable' ? 'checkUnavailable' : 'checkFailed');
   }
 }
 
@@ -122,4 +135,8 @@ button.addEventListener('click', () => {
 });
 
 onLanguageChange(render);
-ready.then(render);
+ready.then(() => {
+  render();
+  checkForUpdates({ quiet: true });
+  setInterval(() => checkForUpdates({ quiet: true }), AUTO_CHECK_INTERVAL_MS);
+});

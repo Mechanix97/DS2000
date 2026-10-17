@@ -33,6 +33,7 @@ lint:
 
 test:
 	@cd src-tauri && cargo test --workspace -- --nocapture
+	@cd src-tauri/frontend && npm test
 
 # Tests needing the DS-2000 plugged in or Discord running; they are #[ignore]d so CI stays green.
 test-hardware:

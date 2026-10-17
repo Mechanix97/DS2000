@@ -12,6 +12,7 @@
 use crate::controller::Controller;
 
 use discord::discord_state::{DiscordVoiceSettings, DiscordWorkerEvent};
+use discord::ipc::DiscordUser;
 use serial::messages::button::Button;
 use serial::serial_message::{PROTOCOL_VERSION, SerialMessage};
 use serial::serial_state::{DeviceStatus, SerialWorkerEvent};
@@ -26,6 +27,9 @@ const DISCORD_CONNECTION_STATUS_EVENT: &str = "DISCORD_CONNECTION_STATUS_EVENT";
 const DISCORD_VOICE_SETTINGS_EVENT: &str = "DISCORD_VOICE_SETTINGS_EVENT";
 const SERIAL_CONNECTION_STATUS_EVENT: &str = "SERIAL_CONNECTION_STATUS_EVENT";
 const DISCORD_AWAITING_AUTHORIZATION_EVENT: &str = "DISCORD_AWAITING_AUTHORIZATION_EVENT";
+const DEVICE_BUTTON_EVENT: &str = "DEVICE_BUTTON_EVENT";
+const DISCORD_USER_EVENT: &str = "DISCORD_USER_EVENT";
+const DISCORD_RUNNING_EVENT: &str = "DISCORD_RUNNING_EVENT";
 
 /// Window the frontend runs in. Emitting while it is hidden is pointless work.
 const MAIN_WINDOW: &str = "main";
@@ -88,11 +92,52 @@ impl From<DeviceStatus> for SerialStatusPayload {
 
 /// Everything the UI shows, plus whether it has been told about it.
 ///
+/// The Discord account for the status panel. Sent as `null` until the first connection.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscordUserPayload {
+    pub name: String,
+    /// `None` for Discord's default avatar; the panel shows the DS2000 logo then.
+    pub avatar_url: Option<String>,
+}
+
+impl From<&DiscordUser> for DiscordUserPayload {
+    fn from(user: &DiscordUser) -> Self {
+        Self {
+            name: user.display_name().to_owned(),
+            avatar_url: user.avatar_url(),
+        }
+    }
+}
+
+/// Which key was pressed on the device, as the frontend names them.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ButtonPayload {
+    Mute,
+    Deafen,
+    Disconnect,
+}
+
+impl From<Button> for ButtonPayload {
+    fn from(button: Button) -> Self {
+        match button {
+            Button::MuteButton => Self::Mute,
+            Button::DeafenButton => Self::Deafen,
+            Button::DisconnectButton => Self::Disconnect,
+        }
+    }
+}
+
 /// Keeping the last known values here is what lets the coordinator skip emitting while the
 /// window is hidden and then bring it up to date in one go when it is shown again.
 #[derive(Default)]
 struct UiState {
     discord_connected: bool,
+    /// Kept across disconnections, so the panel still says whose Discord is closed.
+    discord_user: Option<DiscordUserPayload>,
+    /// Whether Discord is running; `None` until the worker has tried to reach it.
+    discord_running: Option<bool>,
     serial_status: SerialStatusPayload,
     voice_settings: VoiceSettingsPayload,
 }
@@ -180,6 +225,21 @@ impl Coordinator {
                     debug!("Could not emit the authorisation notice: {err}");
                 }
             }
+            DiscordWorkerEvent::UserChanged(user) => {
+                // A reply without a readable user keeps the last known one.
+                if let Some(user) = user {
+                    self.ui.discord_user = Some(DiscordUserPayload::from(&user));
+                    self.emit(DISCORD_USER_EVENT, self.ui.discord_user.clone());
+                    if let Some(running) = self.ui.discord_running {
+                        self.emit(DISCORD_RUNNING_EVENT, running);
+                    }
+                }
+            }
+            DiscordWorkerEvent::RunningChanged { running } => {
+                debug!("Discord running: {running}");
+                self.ui.discord_running = Some(running);
+                self.emit(DISCORD_RUNNING_EVENT, running);
+            }
             DiscordWorkerEvent::ConnectionChanged { connected } => {
                 debug!("Discord connection changed: connected={connected}");
                 self.ui.discord_connected = connected;
@@ -222,6 +282,9 @@ impl Coordinator {
     }
 
     async fn on_button(&mut self, button: Button) {
+        // Lights the key up in the RGB tab, so the device can be tested without Discord.
+        self.emit(DEVICE_BUTTON_EVENT, ButtonPayload::from(button));
+
         match button {
             Button::MuteButton => {
                 self.voice_settings.mute = !self.voice_settings.mute;
@@ -325,6 +388,7 @@ impl Coordinator {
     /// Sends everything the UI shows. Used when the window becomes visible again.
     fn refresh_ui(&self) {
         self.emit(DISCORD_CONNECTION_STATUS_EVENT, self.ui.discord_connected);
+        self.emit(DISCORD_USER_EVENT, self.ui.discord_user.clone());
         self.emit(
             SERIAL_CONNECTION_STATUS_EVENT,
             self.ui.serial_status.clone(),
@@ -404,5 +468,19 @@ mod tests {
                 "board": "RP2350-Zero",
             })
         );
+    }
+
+    #[test]
+    fn device_keys_reach_the_frontend_by_name() {
+        let names: Vec<_> = [
+            Button::MuteButton,
+            Button::DeafenButton,
+            Button::DisconnectButton,
+        ]
+        .into_iter()
+        .map(|button| serde_json::to_value(ButtonPayload::from(button)).expect("serialises"))
+        .collect();
+
+        assert_eq!(names, ["mute", "deafen", "disconnect"]);
     }
 }

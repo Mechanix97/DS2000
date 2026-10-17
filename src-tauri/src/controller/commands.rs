@@ -3,7 +3,6 @@ use crate::coordinator::UiRefreshHandle;
 use crate::tray::{TRAY_ID, tray_menu};
 use common::rgb_update::{LedRgb, RGBConfig, RGBMode};
 use config::config::log_dir;
-use config::credentials::URL_DISCORD_SETUP_GUIDE;
 use config::language::Language;
 
 use serde::{Deserialize, Serialize};
@@ -21,7 +20,6 @@ pub struct DiscordCredentialsStatus {
     pub client_id: Option<String>,
     pub has_client_secret: bool,
     pub connected: bool,
-    pub setup_guide_url: &'static str,
     pub redirect_uri: &'static str,
 }
 
@@ -57,7 +55,6 @@ pub async fn discord_credentials_status(
         client_id,
         has_client_secret,
         connected,
-        setup_guide_url: URL_DISCORD_SETUP_GUIDE,
         redirect_uri: config::credentials::DISCORD_REDIRECT_URI,
     })
 }
@@ -276,7 +273,38 @@ pub struct RgbRequest {
     pub led2: LedRgb,
 }
 
-#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+/// The stored lighting configuration, shaped like [`RgbRequest`] so the RGB tab can start from
+/// what the device was last given instead of its own defaults.
+///
+/// The colours are `None` for Rainbow, which does not store any: the tab keeps its own then.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RgbSettings {
+    pub mode: RgbModeName,
+    pub brightness: u8,
+    pub speed: u8,
+    pub led1: Option<LedRgb>,
+    pub led2: Option<LedRgb>,
+}
+
+impl From<RGBConfig> for RgbSettings {
+    fn from(config: RGBConfig) -> Self {
+        let (mode, colours) = match config.rgb_mode {
+            RGBMode::Rainbow => (RgbModeName::Rainbow, None),
+            RGBMode::Fixed { led1, led2 } => (RgbModeName::Fixed, Some((led1, led2))),
+            RGBMode::Breathing { led1, led2 } => (RgbModeName::Breathing, Some((led1, led2))),
+        };
+        Self {
+            mode,
+            brightness: config.brightness,
+            speed: config.speed,
+            led1: colours.map(|(led1, _)| led1),
+            led2: colours.map(|(_, led2)| led2),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum RgbModeName {
     Rainbow,
@@ -304,6 +332,14 @@ impl From<RgbRequest> for RGBConfig {
             },
         }
     }
+}
+
+/// The lighting configuration saved in the config file.
+#[tauri::command]
+pub async fn rgb_config(
+    controller: State<'_, Arc<Mutex<Controller>>>,
+) -> Result<RgbSettings, String> {
+    Ok(controller.lock().await.config.rgb_config().await.into())
 }
 
 #[tauri::command]
@@ -371,6 +407,27 @@ mod tests {
         for mode in ["rainbow", "fixed", "breathing"] {
             assert_eq!(RGBConfig::from(request(mode)).speed, 64, "mode {mode}");
         }
+    }
+
+    /// What the RGB tab loads has to be what it would send back, or opening the app and touching
+    /// one control would change the others.
+    #[test]
+    fn stored_settings_round_trip_through_the_request_shape() {
+        for mode in ["fixed", "breathing"] {
+            let stored = RGBConfig::from(request(mode));
+            let loaded =
+                serde_json::to_value(RgbSettings::from(stored.clone())).expect("serialises");
+            let sent: RgbRequest = serde_json::from_value(loaded).expect("deserialises");
+            assert_eq!(RGBConfig::from(sent), stored, "mode {mode}");
+        }
+    }
+
+    #[test]
+    fn rainbow_settings_carry_no_colours() {
+        let settings = RgbSettings::from(RGBConfig::from(request("rainbow")));
+        assert_eq!(settings.mode, RgbModeName::Rainbow);
+        assert_eq!((settings.led1, settings.led2), (None, None));
+        assert_eq!((settings.brightness, settings.speed), (128, 64));
     }
 
     #[test]

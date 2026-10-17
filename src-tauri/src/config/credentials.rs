@@ -24,10 +24,6 @@ const KEYRING_SERVICE: &str = "DS2000";
 /// third field in sync.
 pub const DISCORD_REDIRECT_URI: &str = "http://localhost/";
 
-/// Step-by-step guide for creating the Discord application, linked from the Discord tab.
-// TODO: this page does not exist yet. Publish it before the next release.
-pub const URL_DISCORD_SETUP_GUIDE: &str = "https://www.mechardo3d.xyz/ds2000/discord-setup";
-
 #[derive(Error, Debug)]
 pub enum CredentialError {
     /// The keyring is unreachable: locked session, denied access, or an unsupported platform.

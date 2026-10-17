@@ -44,6 +44,10 @@ jobs:
         working-directory: src-tauri/frontend
         run: npm run build
 
+      - name: Test frontend
+        working-directory: src-tauri/frontend
+        run: npm test
+
       # No toolchain pinned here on purpose: src-tauri/rust-toolchain.toml is the single source
       # of truth, and rustup installs from it on the first cargo invocation. Pinning a version in
       # this file too would let CI and local builds drift apart, which is exactly the failure

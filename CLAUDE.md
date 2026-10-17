@@ -23,7 +23,8 @@ RPC and drives the device over a serial protocol.
 - **Logging**: `tracing` macros only. Never `println!` or `eprintln!`.
 - **Comments**: Document non-obvious logic. Public APIs have doc comments.
 - **Testing**: Tests for business logic and message parsing. Tests that need the device or Discord
-  are `#[ignore]`d.
+  are `#[ignore]`d. Frontend logic that does not need the DOM lives in its own module (e.g.
+  `color.js`) and is tested with Vitest in `frontend/tests/`.
 - **Dependencies**: Minimise them; justify each crate.
 - **Security**: Secrets live in the OS keyring, never in the config file or the logs.
 
@@ -69,22 +70,27 @@ src-tauri/src/
 │   └── error.rs
 ├── config/                      # crate `config`
 │   ├── config.rs                # %APPDATA%\Mechardo\config.json
-│   ├── credentials.rs           # Keyring access, redirect URI, setup guide URL
+│   ├── credentials.rs           # Keyring access, redirect URI
 │   └── language.rs
 └── common/                      # crate `common`: RGB types, task guard, rotating log file
 
 src-tauri/frontend/
-├── index.html, styles.css
-├── tabs.js                      # Sidebar tabs: RGB, Discord, Settings, About
-├── backendEvents.js             # Backend events, RGB controls, mic/headset toggles
-├── discordSetup.js              # Discord tab: credentials, connect, unlink
+├── index.html, styles.css       # Every colour is a :root token; Noto Sans bundled in static/fonts
+├── tabs.js                      # Sidebar sections: RGB, Discord, Settings, About
+├── statusPanel.js               # Bottom of the sidebar: what to notify about, account, badges
+├── notices.js                   # Notification stack: problems stay, fixes show briefly
+├── backendEvents.js             # Mic/headset toggles, device keys lighting up, versions
+├── rgb.js, color.js             # RGB tab: mode, brightness, speed, palette + hex, live preview
+├── discordSetup.js              # Discord tab: three steps, credentials, connect, unlink
 ├── startupSettings.js           # Settings tab: autostart, start minimised, language
-├── updater.js                   # About tab: check for updates and install them
-├── firmwareUpdater.js           # About tab: check for device firmware updates and install them
+├── updater.js                   # About tab: app updates, also checked daily on their own
+├── firmwareUpdater.js           # About tab: firmware updates, also checked when the device connects
 ├── logsFolder.js                # About tab: open the logs folder
-├── serverButtonEvents.js        # External links
+├── links.js                     # Project site URLs, in the app's language (/{lang}/...)
+├── serverButtonEvents.js        # Site and social links in About
 ├── i18n.js                      # Bundled translations; the language is persisted by the backend
-└── translations/{en,es}.json    # en is the fallback and must be complete
+├── translations/{en,es}.json    # en is the fallback and must be complete
+└── tests/                       # Vitest: colours, links, translation parity (`npm test`)
 ```
 
 ## Architecture
@@ -93,14 +99,16 @@ src-tauri/frontend/
 
 **Commands** (`controller/commands.rs`, registered in `main.rs`): `app_version`, `open_logs_folder`,
 `controller_start`,
-`ds_set_voice_settings_command`, `serial_set_rgb`, `discord_credentials_status`,
+`ds_set_voice_settings_command`, `rgb_config`, `serial_set_rgb`, `discord_credentials_status`,
 `discord_set_credentials`, `discord_clear_credentials`, `startup_preferences`,
 `set_startup_preferences`, `ui_language`, `set_ui_language`; `update_check` and `update_install`
 in `controller/updater.rs`; `firmware_check` and `firmware_install` in `controller/firmware.rs`.
 
 **Events** (emitted by `coordinator.rs`): `DISCORD_CONNECTION_STATUS_EVENT`,
-`DISCORD_VOICE_SETTINGS_EVENT`, `DISCORD_AWAITING_AUTHORIZATION_EVENT`,
-`SERIAL_CONNECTION_STATUS_EVENT`.
+`DISCORD_VOICE_SETTINGS_EVENT`, `DISCORD_AWAITING_AUTHORIZATION_EVENT`, `DISCORD_USER_EVENT`
+(display name and avatar URL, kept in memory only), `DISCORD_RUNNING_EVENT` (whether Discord
+itself is open), `SERIAL_CONNECTION_STATUS_EVENT`,
+`DEVICE_BUTTON_EVENT` (a key pressed on the device).
 
 ### Workers and coordinator
 
@@ -216,8 +224,8 @@ Every string goes through `i18n.js`. Add the key to `translations/en.json` (requ
 
 ## Known Issues and Technical Debt
 
-- The Discord setup guide linked from the Discord tab (`URL_DISCORD_SETUP_GUIDE`,
-  `mechardo3d.xyz/ds2000/discord-setup`) lives in the site repo (Mechanix97/mechardo3d#112); its
+- The Discord setup guide linked from the Discord tab (`frontend/links.js`,
+  `mechardo3d.xyz/{lang}/ds2000/discord-setup`) lives in the site repo (Mechanix97/mechardo3d#112); its
   screenshots are pending (mechardo3d#110, #111). The README has the steps too.
 - The MSI is unsigned (#29).
 - Windows only. Nothing has been tested on macOS or Linux.
