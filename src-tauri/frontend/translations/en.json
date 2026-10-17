@@ -88,7 +88,6 @@
     "checkFailed": "Could not check for updates. Check your internet connection and try again.",
     "checkUnavailable": "Update information is not available right now. Try again later.",
     "releaseNotes": "What's new",
-    "prereleases": "Include pre-release versions",
     "installFailed": "The update could not be downloaded. Try again later.",
     "firmware": "Firmware:"
   },

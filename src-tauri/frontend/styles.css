@@ -1187,10 +1187,6 @@ select:focus {
     margin-top: 8px;
 }
 
-.about-update-prereleases {
-    margin-top: 12px;
-}
-
 .about-update-release[hidden] {
     display: none;
 }

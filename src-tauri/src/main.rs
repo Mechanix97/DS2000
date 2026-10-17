@@ -99,8 +99,6 @@ async fn main() {
             commands::set_ui_language,
             updater::update_check,
             updater::update_install,
-            updater::update_prereleases,
-            updater::set_update_prereleases,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

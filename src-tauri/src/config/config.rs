@@ -59,9 +59,6 @@ pub struct Settings {
 
     pub start_with_windows: bool,
     pub start_minimized: bool,
-
-    /// Offer pre-releases as updates too, not only the latest published release.
-    pub update_prereleases: bool,
 }
 
 pub struct Config {
@@ -246,14 +243,6 @@ impl Config {
         let mut settings = self.inner.lock().await;
         if settings.language != language {
             settings.language = language;
-            self.dirty.store(true, atomic::Ordering::Relaxed);
-        }
-    }
-
-    pub async fn update_prereleases(&mut self, enabled: bool) {
-        let mut settings = self.inner.lock().await;
-        if settings.update_prereleases != enabled {
-            settings.update_prereleases = enabled;
             self.dirty.store(true, atomic::Ordering::Relaxed);
         }
     }
