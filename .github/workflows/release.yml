@@ -197,7 +197,9 @@ jobs:
           if-no-files-found: error
 
       # A draft, so publishing stays a human decision. Re-running the workflow for the same tag
-      # replaces the MSI and its checksum instead of failing on the existing release.
+      # replaces the files of a draft, but never of a published release: installed copies read its
+      # latest.json, and while the files were replaced one by one it would point at an MSI whose
+      # signature does not match.
       - name: Attach the MSI to a draft release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -209,6 +211,10 @@ jobs:
           PROTOCOL: ${{ steps.version.outputs.protocol }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" != true ]; then
+              echo "::error::Release $GITHUB_REF_NAME is already published; tag a new version instead"
+              exit 1
+            fi
             gh release upload "$GITHUB_REF_NAME" "$MSI" "$CHECKSUM" "$MSI.sig" "$MANIFEST" --clobber
             exit 0
           fi

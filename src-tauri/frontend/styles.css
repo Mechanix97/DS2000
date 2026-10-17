@@ -1183,6 +1183,14 @@ select:focus {
     appearance: none;
 }
 
+.about-update-release {
+    margin-top: 8px;
+}
+
+.about-update-release[hidden] {
+    display: none;
+}
+
 .about-update-progress[hidden] {
     display: none;
 }

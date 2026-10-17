@@ -23,7 +23,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// The update found by the last check, kept so installing does not fetch `latest.json` again and
 /// cannot end up installing a different version than the one the user was shown.
@@ -38,9 +38,23 @@ const DOWNLOAD_STALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What the About tab shows for an available update.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     pub version: String,
-    pub notes: Option<String>,
+    /// The release page. The workflow writes it to the manifest's `notes`, which the plugin reads
+    /// as `body`.
+    pub release_url: Option<String>,
+}
+
+/// Why checking failed, which decides what the About tab tells the user.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CheckError {
+    /// The request did not complete: offline, a timeout, DNS.
+    Offline,
+    /// The server answered without a usable manifest: no release published yet, or GitHub
+    /// returning an error.
+    Unavailable,
 }
 
 /// Download progress, streamed to the About tab while the MSI downloads.
@@ -60,24 +74,32 @@ pub enum UpdateProgress {
 
 /// Looks for a newer release. `None` means this is the latest version.
 ///
-/// An error here is "could not check" (offline, GitHub down, no release published yet), not a
-/// fault in the app, and the About tab says so.
+/// An error here is "could not check", not a fault in the app, and the About tab says so.
 #[tauri::command]
 pub async fn update_check(
     app: AppHandle,
     pending: State<'_, PendingUpdate>,
-) -> Result<Option<UpdateInfo>, String> {
-    let updater = app.updater().map_err(|err| err.to_string())?;
+) -> Result<Option<UpdateInfo>, CheckError> {
+    let updater = app.updater().map_err(|err| {
+        error!("Could not build the updater: {err}");
+        CheckError::Unavailable
+    })?;
     // Not the updater's own `timeout`: that is a total limit the update inherits for the download.
-    let update = tokio::time::timeout(CHECK_TIMEOUT, updater.check())
-        .await
-        .map_err(|_| "Timed out checking for updates".to_owned())
-        .and_then(|result| result.map_err(|err| err.to_string()))
-        .inspect_err(|err| warn!("Could not check for updates: {err}"))?;
+    let update = match tokio::time::timeout(CHECK_TIMEOUT, updater.check()).await {
+        Ok(Ok(update)) => update,
+        Ok(Err(err)) => {
+            warn!("Could not check for updates: {err}");
+            return Err(check_error(&err));
+        }
+        Err(_) => {
+            warn!("Timed out checking for updates");
+            return Err(CheckError::Offline);
+        }
+    };
 
     let info = update.as_ref().map(|update| UpdateInfo {
         version: update.version.clone(),
-        notes: update.body.clone(),
+        release_url: update.body.clone(),
     });
     match &info {
         Some(info) => info!("Update available: {}", info.version),
@@ -86,6 +108,25 @@ pub async fn update_check(
 
     *pending.0.lock().await = update;
     Ok(info)
+}
+
+/// A non-success status, a 404 included, comes back from the plugin as `ReleaseNotFound`; only a
+/// request that never got an answer is the connection's fault.
+fn check_error(err: &tauri_plugin_updater::Error) -> CheckError {
+    match err {
+        tauri_plugin_updater::Error::Reqwest(_) | tauri_plugin_updater::Error::Network(_) => {
+            CheckError::Offline
+        }
+        _ => CheckError::Unavailable,
+    }
+}
+
+/// Sends a progress message to the About tab. A failure means the webview is gone, which does not
+/// stop the update, so it is logged rather than returned.
+fn report(on_progress: &Channel<UpdateProgress>, progress: UpdateProgress) {
+    if let Err(err) = on_progress.send(progress) {
+        debug!("Could not send update progress to the About tab: {err}");
+    }
 }
 
 /// Downloads and installs the update found by the last check, then exits for the installer.
@@ -105,7 +146,7 @@ pub async fn update_install(
 
     info!("Downloading update {}", update.version);
     let mut downloaded: u64 = 0;
-    let mut started = false;
+    let mut reported: Option<u64> = None;
     let last_chunk = Arc::new(std::sync::Mutex::new(Instant::now()));
     let download = update.download(
         {
@@ -113,12 +154,17 @@ pub async fn update_install(
             let on_progress = on_progress.clone();
             move |chunk, total| {
                 *last_chunk.lock().unwrap() = Instant::now();
-                if !started {
-                    started = true;
-                    let _ = on_progress.send(UpdateProgress::Started { total });
+                if reported.is_none() {
+                    report(&on_progress, UpdateProgress::Started { total });
                 }
                 downloaded += chunk as u64;
-                let _ = on_progress.send(UpdateProgress::Progress { downloaded });
+                // Chunks are a few KB, so reporting each one would redraw the bar thousands of
+                // times. Every percent is enough, or every 256 KB when the size is unknown.
+                let step = total.map_or(256 * 1024, |total| (total / 100).max(1));
+                if reported.is_none_or(|last| downloaded - last >= step) {
+                    reported = Some(downloaded);
+                    report(&on_progress, UpdateProgress::Progress { downloaded });
+                }
             }
         },
         || {},
@@ -138,7 +184,7 @@ pub async fn update_install(
     .inspect_err(|err| warn!("Could not download update {}: {err}", update.version))?;
 
     // Past this point the download is verified, and the app is going away either way.
-    let _ = on_progress.send(UpdateProgress::Installing);
+    report(&on_progress, UpdateProgress::Installing);
     if let Err(err) = controller.lock().await.shutdown().await {
         // Same call as quitting from the tray: an unclean shutdown is not a reason to refuse.
         error!("Error shutting down the controller before the update: {err}");
@@ -230,5 +276,39 @@ mod tests {
             encode(UpdateProgress::Installing),
             json!({"event": "installing"})
         );
+    }
+
+    // updater.js reads `releaseUrl` and switches on the error string.
+    #[test]
+    fn check_results_have_the_shape_the_about_tab_reads() {
+        let info = UpdateInfo {
+            version: "1.2.3".to_owned(),
+            release_url: Some("https://example.com".to_owned()),
+        };
+        assert_eq!(
+            serde_json::to_value(info).unwrap(),
+            json!({"version": "1.2.3", "releaseUrl": "https://example.com"})
+        );
+        assert_eq!(
+            serde_json::to_value(CheckError::Offline).unwrap(),
+            json!("offline")
+        );
+        assert_eq!(
+            serde_json::to_value(CheckError::Unavailable).unwrap(),
+            json!("unavailable")
+        );
+    }
+
+    #[test]
+    fn only_an_unanswered_request_is_blamed_on_the_connection() {
+        use tauri_plugin_updater::Error;
+        assert!(matches!(
+            check_error(&Error::Network("reset".to_owned())),
+            CheckError::Offline
+        ));
+        assert!(matches!(
+            check_error(&Error::ReleaseNotFound),
+            CheckError::Unavailable
+        ));
     }
 }

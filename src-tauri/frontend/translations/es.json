@@ -86,6 +86,8 @@
     "downloadingNoSize": "Descargando la actualización…",
     "installing": "Instalando. DS 2000 se reiniciará al terminar.",
     "checkFailed": "No se pudo buscar actualizaciones. Revisa la conexión a internet y vuelve a intentarlo.",
+    "checkUnavailable": "La información de actualizaciones no está disponible por ahora. Inténtalo más tarde.",
+    "releaseNotes": "Ver novedades",
     "installFailed": "No se pudo descargar la actualización. Inténtalo más tarde.",
     "firmware": "Firmware:"
   },
