@@ -1,0 +1,12 @@
+# Every text file is LF, in the repository and in working copies, whatever core.autocrlf says.
+#
+# Git for Windows defaults to autocrlf=true, which checks files out as CRLF, while the tools that
+# rewrite them (cargo tauri dev syncing Cargo.toml, npm, formatters) write LF. Git then reported
+# those files as modified with no change in their content.
+* text=auto eol=lf
+
+# Binary, never touched.
+*.png binary
+*.ico binary
+*.webp binary
+*.woff2 binary
