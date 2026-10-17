@@ -5,6 +5,10 @@
 //! and only an MSI signed with the update-signing key whose public half is in that file is
 //! installed. Releases are drafts until published, so a draft is never offered.
 //!
+//! `releases/latest` skips pre-releases, so with pre-releases turned on in the About tab the
+//! newest release of either kind is found through the GitHub API and its `latest.json` read
+//! instead of the configured endpoint.
+//!
 //! Two commands rather than the plugin's own JavaScript API: installing has to shut the workers
 //! down first, so the config is saved and the serial port and the Discord pipe are let go before
 //! the app exits, and that sequence belongs in the backend.
@@ -16,11 +20,11 @@
 
 use crate::controller::Controller;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, Url};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -30,7 +34,13 @@ use tracing::{debug, error, info, warn};
 #[derive(Default)]
 pub struct PendingUpdate(Mutex<Option<Update>>);
 
-/// How long checking may take. `latest.json` is a few hundred bytes, so anything slower is a hang.
+/// Newest first, published ones only without a token. Twenty is far more than ever sit between two
+/// releases that carry a manifest.
+const RELEASES_API: &str = "https://api.github.com/repos/Mechanix97/DS2000/releases?per_page=20";
+const MANIFEST: &str = "latest.json";
+
+/// How long checking may take, the GitHub API lookup for pre-releases included. Both answers are a
+/// few KB, so anything slower is a hang.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long the download may go without a chunk before it is abandoned. A stall rather than a
 /// total limit, so a slow connection still finishes.
@@ -72,6 +82,50 @@ pub enum UpdateProgress {
     Installing,
 }
 
+#[derive(Deserialize)]
+struct Release {
+    tag_name: String,
+    assets: Vec<Asset>,
+}
+
+#[derive(Deserialize)]
+struct Asset {
+    name: String,
+    browser_download_url: String,
+}
+
+/// Whether pre-releases are offered as updates.
+#[tauri::command]
+pub async fn update_prereleases(
+    controller: State<'_, Arc<Mutex<Controller>>>,
+) -> Result<bool, String> {
+    Ok(controller
+        .lock()
+        .await
+        .config
+        .settings()
+        .await
+        .update_prereleases)
+}
+
+#[tauri::command]
+pub async fn set_update_prereleases(
+    enabled: bool,
+    controller: State<'_, Arc<Mutex<Controller>>>,
+    pending: State<'_, PendingUpdate>,
+) -> Result<(), String> {
+    controller
+        .lock()
+        .await
+        .config
+        .update_prereleases(enabled)
+        .await;
+    // What the last check found may not be on the new channel.
+    *pending.0.lock().await = None;
+    debug!("Pre-release updates {}", if enabled { "on" } else { "off" });
+    Ok(())
+}
+
 /// Looks for a newer release. `None` means this is the latest version.
 ///
 /// An error here is "could not check", not a fault in the app, and the About tab says so.
@@ -79,18 +133,19 @@ pub enum UpdateProgress {
 pub async fn update_check(
     app: AppHandle,
     pending: State<'_, PendingUpdate>,
+    controller: State<'_, Arc<Mutex<Controller>>>,
 ) -> Result<Option<UpdateInfo>, CheckError> {
-    let updater = app.updater().map_err(|err| {
-        error!("Could not build the updater: {err}");
-        CheckError::Unavailable
-    })?;
+    let prereleases = controller
+        .lock()
+        .await
+        .config
+        .settings()
+        .await
+        .update_prereleases;
     // Not the updater's own `timeout`: that is a total limit the update inherits for the download.
-    let update = match tokio::time::timeout(CHECK_TIMEOUT, updater.check()).await {
+    let update = match tokio::time::timeout(CHECK_TIMEOUT, check(&app, prereleases)).await {
         Ok(Ok(update)) => update,
-        Ok(Err(err)) => {
-            warn!("Could not check for updates: {err}");
-            return Err(check_error(&err));
-        }
+        Ok(Err(err)) => return Err(err),
         Err(_) => {
             warn!("Timed out checking for updates");
             return Err(CheckError::Offline);
@@ -108,6 +163,67 @@ pub async fn update_check(
 
     *pending.0.lock().await = update;
     Ok(info)
+}
+
+async fn check(app: &AppHandle, prereleases: bool) -> Result<Option<Update>, CheckError> {
+    let builder = app.updater_builder();
+    let builder = if prereleases {
+        let endpoint = newest_manifest().await?;
+        builder.endpoints(vec![endpoint]).map_err(|err| {
+            error!("Could not set the pre-release update endpoint: {err}");
+            CheckError::Unavailable
+        })?
+    } else {
+        builder
+    };
+    let updater = builder.build().map_err(|err| {
+        error!("Could not build the updater: {err}");
+        CheckError::Unavailable
+    })?;
+    updater.check().await.map_err(|err| {
+        warn!("Could not check for updates: {err}");
+        check_error(&err)
+    })
+}
+
+/// The `latest.json` of the newest release that has one, pre-release or not.
+async fn newest_manifest() -> Result<Url, CheckError> {
+    let response = reqwest::Client::new()
+        .get(RELEASES_API)
+        // GitHub rejects API requests without a user agent.
+        .header(reqwest::header::USER_AGENT, "DS2000-updater")
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|err| {
+            warn!("Could not list releases: {err}");
+            CheckError::Offline
+        })?;
+    let releases: Vec<Release> = response
+        .error_for_status()
+        .map_err(|err| {
+            warn!("Could not list releases: {err}");
+            CheckError::Unavailable
+        })?
+        .json()
+        .await
+        .map_err(|err| {
+            warn!("Could not read the release list: {err}");
+            CheckError::Unavailable
+        })?;
+    manifest_url(&releases).ok_or_else(|| {
+        warn!("No release has a {MANIFEST}");
+        CheckError::Unavailable
+    })
+}
+
+/// Releases come newest first, and only published ones reach an unauthenticated request.
+fn manifest_url(releases: &[Release]) -> Option<Url> {
+    releases.iter().find_map(|release| {
+        let asset = release.assets.iter().find(|asset| asset.name == MANIFEST)?;
+        debug!("Newest release with a manifest: {}", release.tag_name);
+        asset.browser_download_url.parse().ok()
+    })
 }
 
 /// A non-success status, a 404 included, comes back from the plugin as `ReleaseNotFound`; only a
@@ -297,6 +413,24 @@ mod tests {
             serde_json::to_value(CheckError::Unavailable).unwrap(),
             json!("unavailable")
         );
+    }
+
+    #[test]
+    fn the_newest_release_with_a_manifest_is_used() {
+        let releases: Vec<Release> = serde_json::from_value(json!([
+            {"tag_name": "v0.2.2", "assets": [{"name": "DS2000.msi", "browser_download_url": "https://x/a.msi"}]},
+            {"tag_name": "v0.2.1", "prerelease": true, "assets": [
+                {"name": "DS2000.msi", "browser_download_url": "https://x/b.msi"},
+                {"name": "latest.json", "browser_download_url": "https://x/v0.2.1/latest.json"}
+            ]},
+            {"tag_name": "v0.2.0", "assets": [{"name": "latest.json", "browser_download_url": "https://x/v0.2.0/latest.json"}]}
+        ]))
+        .unwrap();
+        assert_eq!(
+            manifest_url(&releases).unwrap().as_str(),
+            "https://x/v0.2.1/latest.json"
+        );
+        assert!(manifest_url(&[]).is_none());
     }
 
     #[test]

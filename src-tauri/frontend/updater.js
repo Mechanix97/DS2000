@@ -9,6 +9,7 @@ const statusLabel = document.getElementById('update-status');
 const button = document.getElementById('update-button');
 const progressBar = document.getElementById('update-progress');
 const releaseLink = document.getElementById('update-release');
+const prereleasesSwitch = document.getElementById('update-prereleases');
 
 // idle | checking | upToDate | available | checkFailed | checkUnavailable | downloading |
 // installing | installFailed
@@ -109,6 +110,20 @@ async function installUpdate() {
   }
 }
 
+prereleasesSwitch.addEventListener('change', async () => {
+  try {
+    await invoke('set_update_prereleases', { enabled: prereleasesSwitch.checked });
+  } catch (error) {
+    console.error('Could not change the pre-release setting:', error);
+    prereleasesSwitch.checked = !prereleasesSwitch.checked;
+    return;
+  }
+  // An update found on the other channel no longer applies; the backend dropped it too.
+  if (state === 'available' || state === 'upToDate') {
+    setState('idle');
+  }
+});
+
 releaseLink.addEventListener('click', async () => {
   await open(releaseUrl);
 });
@@ -123,3 +138,6 @@ button.addEventListener('click', () => {
 
 onLanguageChange(render);
 ready.then(render);
+invoke('update_prereleases')
+  .then(enabled => { prereleasesSwitch.checked = enabled; })
+  .catch(error => console.error('Could not read the pre-release setting:', error));
