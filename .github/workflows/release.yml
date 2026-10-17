@@ -37,6 +37,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The updater (#30) only installs an MSI signed with the key whose public half is in
+      # tauri.conf.json, so with `createUpdaterArtifacts` the build signs the MSI and fails without
+      # the private key. Checked up front for a clear message instead of a bundler error.
+      - name: Check the update-signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is not set (see the README, Releasing)"
+            exit 1
+          fi
+
       # rust-toolchain.toml at the repository root is the single source of the toolchain, as in ci.yml.
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
@@ -98,18 +110,6 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           cargo +stable install tauri-cli --version "$TAURI_CLI_VERSION" --locked
-
-      # The updater (#30) only installs an MSI signed with the key whose public half is in
-      # tauri.conf.json, so with `createUpdaterArtifacts` the build signs the MSI and fails without
-      # the private key. Checked up front for a clear message instead of a bundler error.
-      - name: Check the update-signing key
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is not set (see the README, Releasing)"
-            exit 1
-          fi
 
       - name: Build the installer
         working-directory: src-tauri
