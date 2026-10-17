@@ -65,6 +65,13 @@ serde_json = "1.0"
 # enabled but never used.
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 directories = "6.0"
+# Verifies a downloaded firmware image against the release's SHA256SUMS before it is written to
+# the device. Already in the tree through Tauri.
+sha2 = "0.10"
+# Checks a firmware image's minisign signature against the key the app ships with before it is
+# written to the device. Already in the tree through tauri-plugin-updater, which verifies the MSI
+# with it.
+minisign-verify = "0.2"
 # Reads the OS display language, so a first run can follow it instead of guessing. One function,
 # and the alternative is a different platform API per target.
 sys-locale = "0.3"

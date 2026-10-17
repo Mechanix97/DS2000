@@ -59,6 +59,9 @@ pub struct Port {
     events: mpsc::UnboundedSender<SerialEvent>,
     /// What the connected device reported in the handshake. `Some` exactly while connected.
     device: Option<DeviceInfoMessage>,
+    /// The last port a DS2000 answered the handshake on, whatever its protocol. Kept after the
+    /// port is released, so a device on another protocol can still be sent to USB boot.
+    last_seen: Option<PathBuf>,
 }
 
 impl Port {
@@ -69,6 +72,7 @@ impl Port {
             _reader_task: None,
             events,
             device: None,
+            last_seen: None,
         }
     }
 
@@ -99,6 +103,7 @@ impl Port {
 
         let mut framed = Framed::new(port, SerialMessageCodec);
         let device = handshake(&mut framed).await?;
+        self.last_seen = Some(port_name.to_owned());
         if device.protocol != PROTOCOL_VERSION {
             warn!(
                 "Port {port_name:?} has a DS2000 on protocol {} (firmware {} on {}), this \
@@ -172,6 +177,11 @@ impl Port {
         self.device
     }
 
+    /// The last port a DS2000 answered on, connected or not.
+    pub fn last_seen(&self) -> Option<&Path> {
+        self.last_seen.as_deref()
+    }
+
     pub async fn send_message(&self, message: &SerialMessage) -> Result<(), SerialPortError> {
         let writer = self
             .writer
@@ -179,6 +189,22 @@ impl Port {
             .ok_or(SerialPortError::PortNotConnected)?;
         writer.lock().await.send(message.clone()).await
     }
+}
+
+/// Asks the device on `path` to reboot into USB boot without speaking the protocol.
+///
+/// The Arduino-Pico core reboots into USB boot when the port is opened at 1200 baud and DTR is
+/// dropped, whatever the firmware does. It is the way into USB boot for a device whose protocol
+/// this application does not speak, so it cannot be sent RebootToBootloader.
+pub fn touch_1200(path: &Path) -> Result<(), SerialPortError> {
+    let port = SerialPort::open(path, 1200).map_err(|err| {
+        debug!("Could not open {path:?} at 1200 baud: {err}");
+        SerialPortError::PortNotAvailable
+    })?;
+    port.set_dtr(false)?;
+    // Closing the port is the other half of the touch.
+    drop(port);
+    Ok(())
 }
 
 /// Confirms a DS-2000 is on the other end by exchanging hello / device info, and returns what it
