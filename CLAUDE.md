@@ -64,6 +64,8 @@ src-tauri/src/
 │   ├── commands.rs              # Tauri commands
 │   ├── tray.rs                  # Tray menu (rebuilt when the language changes)
 │   ├── updater.rs               # In-app updates: check latest.json, download, install
+│   ├── firmware.rs              # Device firmware updates: latest DS2000-Firmware release, UF2 to
+│   │                            # the USB boot drive
 │   └── error.rs
 ├── config/                      # crate `config`
 │   ├── config.rs                # %APPDATA%\Mechardo\config.json
@@ -78,6 +80,7 @@ src-tauri/frontend/
 ├── discordSetup.js              # Discord tab: credentials, connect, unlink
 ├── startupSettings.js           # Settings tab: autostart, start minimised, language
 ├── updater.js                   # About tab: check for updates and install them
+├── firmwareUpdater.js           # About tab: check for device firmware updates and install them
 ├── serverButtonEvents.js        # External links
 ├── i18n.js                      # Bundled translations; the language is persisted by the backend
 └── translations/{en,es}.json    # en is the fallback and must be complete
@@ -91,7 +94,7 @@ src-tauri/frontend/
 `ds_set_voice_settings_command`, `serial_set_rgb`, `discord_credentials_status`,
 `discord_set_credentials`, `discord_clear_credentials`, `startup_preferences`,
 `set_startup_preferences`, `ui_language`, `set_ui_language`; `update_check` and `update_install`
-in `controller/updater.rs`.
+in `controller/updater.rs`; `firmware_check` and `firmware_install` in `controller/firmware.rs`.
 
 **Events** (emitted by `coordinator.rs`): `DISCORD_CONNECTION_STATUS_EVENT`,
 `DISCORD_VOICE_SETTINGS_EVENT`, `DISCORD_AWAITING_AUTHORIZATION_EVENT`,
@@ -125,6 +128,11 @@ and calls `app_handle.exit(0)`. Closing the window only hides it.
 
 - 115200 baud, 1000 ms timeout (`controller/controller.rs`). Only ports with the Raspberry Pi USB
   VID `0x2E8A` are opened; the handshake identifies the device.
+- **Firmware updates** (`controller/firmware.rs`): the latest DS2000-Firmware release, the UF2
+  for the board the device reports (`DS2000-Firmware_<version>_<environment>.uf2`, verified
+  against `SHA256SUMS`). The device goes to USB boot with RebootToBootloader, or with the 1200-baud
+  touch when it is on another protocol; the serial worker stops reconnecting until the image is
+  written; the drive is found by its `INFO_UF2.TXT`. Releases on another protocol are not offered.
 - **Protocol**: specified in `docs/PROTOCOL.md`, the contract with the firmware. Any wire format
   change follows its "Changing the protocol" procedure: update the doc, bump `PROTOCOL_VERSION` in
   both repos, paired PRs.
@@ -153,9 +161,11 @@ release. The app offers an update only once the release is published.
 
 ### Updates
 
-`controller/updater.rs` wraps `tauri-plugin-updater`. Installing shuts the controller down first
-(config saved, port and pipe released), because on Windows the plugin runs `msiexec` and exits the
-process itself. Never change `plugins.updater.pubkey` without a plan: installed copies only accept
+`controller/updater.rs` wraps `tauri-plugin-updater` for the check and the verified download.
+Installing shuts the controller down first (config saved, port and pipe released). On Windows the
+MSI is not handed to the plugin's `install`, which exits on the spot: a detached PowerShell waits
+for the app to exit, runs `msiexec`, and starts the old version again if the install fails or UAC
+is declined. Never change `plugins.updater.pubkey` without a plan: installed copies only accept
 MSIs signed with the matching private key.
 
 ## Common Development Tasks

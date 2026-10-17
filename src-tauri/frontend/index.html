@@ -12,6 +12,7 @@
     <script type="module" src="discordSetup.js"></script>
     <script type="module" src="startupSettings.js"></script>
     <script type="module" src="updater.js"></script>
+    <script type="module" src="firmwareUpdater.js"></script>
 </head>
 
 <body>
@@ -341,6 +342,14 @@
                             </div>
                             <progress class="about-update-progress" id="update-progress" max="100" hidden></progress>
                             <p class="link-button about-update-release" id="update-release" data-i18n="about.releaseNotes" hidden>What's new</p>
+                        </section>
+
+                        <section class="card about-update">
+                            <h5 class="card-title" data-i18n="firmwareUpdate.section">Device firmware</h5>
+                            <div class="about-update-row">
+                                <p class="about-update-status" id="firmware-status" aria-live="polite"></p>
+                                <button id="firmware-button" class="primary-button" type="button"></button>
+                            </div>
                         </section>
 
                         <section class="card about-links">

@@ -5,13 +5,14 @@
 //! machine with no device attached is not rescanning its ports several times a second.
 
 use common::rgb_update::RGBConfig;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::messages::device_info::DeviceInfoMessage;
+use crate::messages::reboot_to_bootloader::RebootToBootloaderMessage;
 use crate::messages::rgb::RGBConfigMessage;
 use crate::messages::voice_settings::VoiceSettingsMessage;
 
-use crate::port::{Port, SerialEvent};
+use crate::port::{Port, SerialEvent, touch_1200};
 use crate::{error::SerialPortError, serial_message::SerialMessage};
 
 use spawned_concurrency::tasks::{
@@ -33,6 +34,11 @@ pub enum InCallMessage {
     PortName,
     Shutdown,
     SerialPortStatus,
+    /// The status last announced, with what the device reported.
+    Device,
+    /// Sends the device to USB boot for a firmware update and stops reconnecting until
+    /// [`InMessage::Resume`].
+    EnterBootloader,
 }
 
 #[derive(Clone)]
@@ -43,6 +49,8 @@ pub enum InMessage {
     RGBUpdate(RGBConfig),
     /// Something the reader task observed.
     Serial(SerialEvent),
+    /// Reconnects again after a firmware update.
+    Resume,
 }
 
 #[derive(Clone, PartialEq)]
@@ -50,6 +58,9 @@ pub enum OutMessage {
     Done,
     PortName(Option<String>),
     SerialPortStatus(bool),
+    Device(DeviceStatus),
+    /// Whether a device was found to send to USB boot.
+    EnteredBootloader(bool),
 }
 
 /// Whether a usable device is attached, as far as the application can tell.
@@ -85,6 +96,9 @@ pub struct SerialPortState {
     reconnect_backoff: Duration,
     /// Guards against several reconnect timers piling up, which would defeat the backoff.
     reconnect_scheduled: bool,
+    /// Set while the device is in USB boot for a firmware update. Its serial port is gone and,
+    /// until the image is written, nothing may open it again.
+    paused: bool,
     shutdown: bool,
 }
 
@@ -104,6 +118,7 @@ impl SerialPortState {
             announced: DeviceStatus::Disconnected,
             reconnect_backoff: RECONNECT_BACKOFF_MIN,
             reconnect_scheduled: false,
+            paused: false,
             shutdown: false,
         };
         let handle = state.start();
@@ -124,7 +139,7 @@ impl SerialPortState {
 
     /// Schedules another connection attempt, doubling the delay up to the ceiling.
     fn schedule_reconnect(&mut self, handle: &GenServerHandle<Self>) {
-        if self.shutdown || self.reconnect_scheduled {
+        if self.shutdown || self.paused || self.reconnect_scheduled {
             return;
         }
         self.reconnect_scheduled = true;
@@ -153,6 +168,43 @@ impl SerialPortState {
             .map_or(DeviceStatus::Disconnected, DeviceStatus::Connected);
         self.announce(status);
     }
+
+    /// Sends the device to USB boot: with RebootToBootloader when it speaks this protocol, with
+    /// the 1200-baud touch on its last port otherwise. Returns whether there was a device to send.
+    async fn enter_bootloader(&mut self) -> bool {
+        let Some(path) = self.port.last_seen().map(Path::to_path_buf) else {
+            return false;
+        };
+        if matches!(self.announced, DeviceStatus::Disconnected) {
+            return false;
+        }
+
+        self.paused = true;
+        let sent = if self.port.is_connected() {
+            let reboot = SerialMessage::RebootToBootloader(RebootToBootloaderMessage {});
+            match self.port.send_message(&reboot).await {
+                Ok(()) => true,
+                Err(err) => {
+                    warn!("Could not send RebootToBootloader, trying the 1200-baud touch: {err}");
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        // Released either way: the device drops off the bus, and the touch needs the port free.
+        self.port.disconnect().await;
+
+        if !sent && let Err(err) = touch_1200(&path) {
+            warn!("Could not send the device to USB boot: {err}");
+            self.paused = false;
+            self.announce(DeviceStatus::Disconnected);
+            return false;
+        }
+        info!("Device sent to USB boot for a firmware update");
+        self.announce(DeviceStatus::Disconnected);
+        true
+    }
 }
 
 impl GenServer for SerialPortState {
@@ -174,7 +226,7 @@ impl GenServer for SerialPortState {
             InMessage::Connect(preferred_port) => {
                 self.reconnect_scheduled = false;
 
-                if self.port.is_connected() {
+                if self.paused || self.port.is_connected() {
                     return CastResponse::NoReply(self);
                 }
 
@@ -232,6 +284,14 @@ impl GenServer for SerialPortState {
                 CastResponse::NoReply(self)
             }
 
+            InMessage::Resume => {
+                self.paused = false;
+                // The device is expected back within seconds, not after a long backoff.
+                self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
+                self.schedule_reconnect(handle);
+                CastResponse::NoReply(self)
+            }
+
             InMessage::SetVoiceSettings(mute, deafen) => {
                 if self.port.is_connected()
                     && let Err(err) = self
@@ -280,6 +340,14 @@ impl GenServer for SerialPortState {
                 let connected = self.port.is_connected();
                 CallResponse::Reply(self, OutMessage::SerialPortStatus(connected))
             }
+            InCallMessage::Device => {
+                let status = self.announced;
+                CallResponse::Reply(self, OutMessage::Device(status))
+            }
+            InCallMessage::EnterBootloader => {
+                let entered = !self.shutdown && self.enter_bootloader().await;
+                CallResponse::Reply(self, OutMessage::EnteredBootloader(entered))
+            }
         }
     }
 }
@@ -301,6 +369,7 @@ mod tests {
                 announced: DeviceStatus::Disconnected,
                 reconnect_backoff: RECONNECT_BACKOFF_MIN,
                 reconnect_scheduled: false,
+                paused: false,
                 shutdown: false,
             },
             observed,

@@ -1191,6 +1191,14 @@ select:focus {
     display: none;
 }
 
+/* The device is in USB boot while its firmware updates, so its controls would do nothing. */
+.firmware-updating #rgb,
+.firmware-updating #mic-icon,
+.firmware-updating #headset-icon {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
 .about-update-progress[hidden] {
     display: none;
 }

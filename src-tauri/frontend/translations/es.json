@@ -91,6 +91,24 @@
     "installFailed": "No se pudo descargar la actualización. Inténtalo más tarde.",
     "firmware": "Firmware:"
   },
+  "firmwareUpdate": {
+    "section": "Firmware del dispositivo",
+    "check": "Buscar actualización de firmware",
+    "checking": "Buscando actualizaciones de firmware…",
+    "upToDate": "El firmware del dispositivo está actualizado.",
+    "available": "Hay un firmware nuevo: {version}.",
+    "install": "Actualizar firmware a {version}",
+    "noDevice": "Conecta el DS2000 para revisar su firmware.",
+    "unknownBoard": "Todavía no hay firmware para esta placa.",
+    "checkFailed": "No se pudo buscar actualizaciones de firmware. Revisa la conexión a internet y vuelve a intentarlo.",
+    "checkUnavailable": "La información de actualizaciones de firmware no está disponible por ahora. Inténtalo más tarde.",
+    "downloading": "Descargando el firmware…",
+    "rebooting": "Reiniciando el dispositivo en modo actualización…",
+    "flashing": "Instalando el firmware. No desconectes el dispositivo.",
+    "restarting": "Esperando a que el dispositivo se reinicie…",
+    "done": "Firmware actualizado a {version}.",
+    "installFailed": "No se pudo actualizar el firmware. Desconecta el dispositivo, vuelve a conectarlo e inténtalo de nuevo."
+  },
   "status": {
     "discordConnected": "Discord: Conectado",
     "discordDisconnected": "Discord: No conectado",
