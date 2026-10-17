@@ -130,7 +130,9 @@ and calls `app_handle.exit(0)`. Closing the window only hides it.
   VID `0x2E8A` are opened; the handshake identifies the device.
 - **Firmware updates** (`controller/firmware.rs`): the latest DS2000-Firmware release, the UF2
   for the board the device reports (`DS2000-Firmware_<version>_<environment>.uf2`, verified
-  against `SHA256SUMS`). The device goes to USB boot with RebootToBootloader, or with the 1200-baud
+  against `SHA256SUMS` and its `.minisig` against `FIRMWARE_PUBLIC_KEY`, the firmware repo's
+  `minisign.pub`; never change that key without a plan, released apps refuse images signed with any
+  other). The device goes to USB boot with RebootToBootloader, or with the 1200-baud
   touch when it is on another protocol; the serial worker stops reconnecting until the image is
   written; the drive is found by its `INFO_UF2.TXT`. Releases on another protocol are not offered.
 - **Protocol**: specified in `docs/PROTOCOL.md`, the contract with the firmware. Any wire format

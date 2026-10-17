@@ -1,9 +1,10 @@
 //! Device firmware updates from the app (#35).
 //!
 //! The firmware repository's release workflow attaches one UF2 per board,
-//! `DS2000-Firmware_<version>_<environment>.uf2`, and a `SHA256SUMS` next to them. Checking finds
-//! the latest release and the image built for the board the device reports; installing downloads
-//! and verifies it, sends the device to USB boot, copies the image to the drive it mounts as, and
+//! `DS2000-Firmware_<version>_<environment>.uf2`, its minisign signature
+//! (`<image>.uf2.minisig`), and a `SHA256SUMS` next to them. Checking finds the latest release and
+//! the image built for the board the device reports; installing downloads it, checks its checksum
+//! and its signature, sends the device to USB boot, copies the image to the drive it mounts as, and
 //! waits for the device to come back with the new version.
 //!
 //! The serial worker is paused from the reboot until the device is expected back: while the device
@@ -12,6 +13,7 @@
 
 use crate::controller::Controller;
 
+use minisign_verify::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 use serial::messages::device_info::{Board, DeviceInfoMessage, FirmwareVersion};
 use serial::serial_message::PROTOCOL_VERSION;
@@ -28,6 +30,11 @@ use tracing::{debug, error, info, warn};
 const LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/Mechanix97/DS2000-Firmware/releases/latest";
 const CHECKSUMS: &str = "SHA256SUMS";
+/// The firmware repository's signing key (its `minisign.pub`). Only images signed with the matching
+/// secret key are written to the device: the checksums come from the same release as the image, so
+/// they catch a broken download but not a replaced release. Never change it without a plan:
+/// released apps refuse firmware signed with any other key.
+const FIRMWARE_PUBLIC_KEY: &str = "RWRypq+y05cyTVMXLmszCfvG4yt2sBUB7noOHBIIivM4DsE1UqbVGxJ9";
 
 /// How long checking may take. The release JSON is a few KB, so anything slower is a hang.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
@@ -48,6 +55,7 @@ pub struct FirmwareRelease {
     version: FirmwareVersion,
     image_url: String,
     image_name: String,
+    signature_url: String,
     checksums_url: String,
 }
 
@@ -270,14 +278,20 @@ fn release_for(
             .find(|asset| asset.name == name)
             .map(|asset| asset.browser_download_url.clone())
     };
-    let (Some(image_url), Some(checksums_url)) = (url(&image_name), url(CHECKSUMS)) else {
-        warn!("Firmware {version} has no {image_name} or {CHECKSUMS}");
+    let Some(image_url) = url(&image_name) else {
+        warn!("Firmware {version} has no {image_name}");
         return Err(FirmwareCheckError::UnknownBoard);
+    };
+    let signature_name = format!("{image_name}.minisig");
+    let (Some(signature_url), Some(checksums_url)) = (url(&signature_name), url(CHECKSUMS)) else {
+        warn!("Firmware {version} has no {signature_name} or {CHECKSUMS}");
+        return Err(FirmwareCheckError::Unavailable);
     };
     Ok(Some(FirmwareRelease {
         version,
         image_url,
         image_name,
+        signature_url,
         checksums_url,
     }))
 }
@@ -322,6 +336,7 @@ async fn download_image(release: &FirmwareRelease) -> Result<Vec<u8>, String> {
         }
     };
     let checksums = fetch(release.checksums_url.clone()).await?;
+    let signature = fetch(release.signature_url.clone()).await?;
     let image = fetch(release.image_url.clone()).await?;
 
     let checksums = String::from_utf8_lossy(&checksums);
@@ -334,6 +349,12 @@ async fn download_image(release: &FirmwareRelease) -> Result<Vec<u8>, String> {
             release.image_name
         ));
     }
+    verify_signature(&image, &String::from_utf8_lossy(&signature)).map_err(|err| {
+        format!(
+            "{} is not signed with the firmware key: {err}",
+            release.image_name
+        )
+    })?;
     debug!("{} verified, {} bytes", release.image_name, image.len());
     Ok(image.to_vec())
 }
@@ -346,6 +367,15 @@ fn expected_checksum<'a>(checksums: &'a str, name: &str) -> Option<&'a str> {
         let file = file.trim_start().trim_start_matches('*');
         (file == name).then_some(hash)
     })
+}
+
+/// Checks a `.minisig` file against [`FIRMWARE_PUBLIC_KEY`]. Only prehashed signatures, the kind
+/// the release workflow makes, are accepted.
+fn verify_signature(image: &[u8], signature: &str) -> Result<(), String> {
+    let key = PublicKey::from_base64(FIRMWARE_PUBLIC_KEY).map_err(|err| err.to_string())?;
+    let signature = Signature::decode(signature).map_err(|err| err.to_string())?;
+    key.verify(image, &signature, false)
+        .map_err(|err| err.to_string())
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -508,7 +538,9 @@ mod tests {
             NOTES,
             &[
                 "DS2000-Firmware_0.3.0_pico.uf2",
+                "DS2000-Firmware_0.3.0_pico.uf2.minisig",
                 "DS2000-Firmware_0.3.0_rp2350_zero.uf2",
+                "DS2000-Firmware_0.3.0_rp2350_zero.uf2.minisig",
                 "SHA256SUMS",
             ],
         );
@@ -518,12 +550,50 @@ mod tests {
             found.image_url,
             "https://x/DS2000-Firmware_0.3.0_rp2350_zero.uf2"
         );
+        assert_eq!(
+            found.signature_url,
+            "https://x/DS2000-Firmware_0.3.0_rp2350_zero.uf2.minisig"
+        );
         assert_eq!(found.checksums_url, "https://x/SHA256SUMS");
 
         assert_eq!(
             release_for(&release, "pico2").unwrap_err(),
             FirmwareCheckError::UnknownBoard
         );
+    }
+
+    #[test]
+    fn an_unsigned_image_is_not_offered() {
+        let release = release(
+            "v0.3.0",
+            NOTES,
+            &["DS2000-Firmware_0.3.0_rp2350_zero.uf2", "SHA256SUMS"],
+        );
+        assert_eq!(
+            release_for(&release, "rp2350_zero").unwrap_err(),
+            FirmwareCheckError::Unavailable
+        );
+    }
+
+    // Made the way the release workflow signs an image, with the firmware key, over SIGNED_IMAGE.
+    const SIGNED_IMAGE: &[u8] = b"DS2000 test image\n";
+    const SIGNATURE: &str = "untrusted comment: signature from tauri secret key
+RURypq+y05cyTW0N5e/tTX6ldnYRh4Nou7htAqgXxwdyQN4fFn+BnYgoY7sb/7nW9iC+nvnxOR9zR/X/xhnjbC/Fv7V+GMlw9AE=
+trusted comment: timestamp:1792251393\tfile:image.uf2
+AK5mtdxZZ41BoQfbvyPkqh4qzz6lTxVmKI9eeMSx9kqFv+w9rRYrSJSOeDuxqnlZtAyfuPudWSih6kLUKGGICQ==
+";
+
+    #[test]
+    fn an_image_signed_with_the_firmware_key_verifies() {
+        assert_eq!(verify_signature(SIGNED_IMAGE, SIGNATURE), Ok(()));
+    }
+
+    #[test]
+    fn a_changed_image_or_a_broken_signature_does_not_verify() {
+        assert!(verify_signature(b"DS2000 test image!\n", SIGNATURE).is_err());
+        assert!(verify_signature(SIGNED_IMAGE, "not a signature").is_err());
+        let tampered = SIGNATURE.replace("AK5m", "BK5m");
+        assert!(verify_signature(SIGNED_IMAGE, &tampered).is_err());
     }
 
     #[test]
