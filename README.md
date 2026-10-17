@@ -173,6 +173,10 @@ messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`f
 
 [GNU Affero General Public License v3.0](LICENSE).
 
+The DS2000 name and the DS2000 and Mechardo Labs logos are not covered by the license: as an
+additional term under AGPL-3.0 section 7(e), their use is governed by the
+[trademark policy](TRADEMARKS.md). Forks are welcome under a name of their own.
+
 Made by [Mechardo Labs](https://www.mechardo3d.xyz/). Community on
 [Discord](https://discord.gg/VtbFAGJe86).
 

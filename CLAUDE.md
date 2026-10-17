@@ -170,6 +170,9 @@ for the app to exit, runs `msiexec`, and starts the old version again if the ins
 is declined. Never change `plugins.updater.pubkey` without a plan: installed copies only accept
 MSIs signed with the matching private key.
 
+`TRADEMARKS.md` lists what a renamed fork changes (identifier, updater endpoint and key, firmware
+key, icons); keep it in step when any of them moves.
+
 ## Common Development Tasks
 
 ### Adding a serial message
