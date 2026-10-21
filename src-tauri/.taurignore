@@ -1,0 +1,4 @@
+# tauri dev restarts the app on any change under src-tauri. The frontend has its own dev server
+# (Vite hot reload), and its dependencies and test caches are not source.
+frontend/node_modules/
+frontend/dist/

@@ -1,6 +1,7 @@
 import { invoke, Channel } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { t, ready, onLanguageChange } from './i18n.js'
+import { setFirmwareUpdateAvailable } from './statusPanel.js'
 
 // About tab: check for newer device firmware and install it (#35). The backend does the work
 // (controller/firmware.rs); this only tracks what to show.
@@ -12,6 +13,11 @@ const button = document.getElementById('firmware-button');
 // | downloading | rebooting | flashing | restarting | done | installFailed
 let state = 'idle';
 let version = null;
+
+// Looked for on its own whenever the device connects, at most this often: the check needs the
+// device attached, so it cannot simply run at start like the app's.
+const AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let lastAutoCheck = 0;
 
 const BUSY = ['checking', 'downloading', 'rebooting', 'flashing', 'restarting'];
 const INSTALLING = ['available', 'downloading', 'rebooting', 'flashing', 'restarting'];
@@ -60,11 +66,16 @@ function render() {
 
 function setState(next) {
   state = next;
+  setFirmwareUpdateAvailable(INSTALLING.includes(state) ? version : null);
   render();
 }
 
-async function checkForUpdates() {
-  setState('checking');
+/// `quiet` is the automatic check: it shows nothing while it runs and nothing if it fails.
+async function checkForUpdates({ quiet = false } = {}) {
+  const previous = state;
+  if (!quiet) {
+    setState('checking');
+  }
   try {
     const update = await invoke('firmware_check');
     if (update) {
@@ -75,7 +86,7 @@ async function checkForUpdates() {
     }
   } catch (error) {
     console.warn('Could not check for firmware updates:', error);
-    setState(CHECK_ERRORS[error] ?? 'checkFailed');
+    setState(quiet ? previous : CHECK_ERRORS[error] ?? 'checkFailed');
   }
 }
 
@@ -112,8 +123,14 @@ button.addEventListener('click', () => {
 listen('SERIAL_CONNECTION_STATUS_EVENT', event => {
   const deviceState = event.payload?.state;
   const attached = deviceState === 'connected' || deviceState === 'firmwareOutdated';
-  if (attached && (state === 'noDevice' || (state === 'idle' && deviceState === 'firmwareOutdated'))) {
+  if (!attached || BUSY.includes(state)) {
+    return;
+  }
+  if (state === 'noDevice' || (state === 'idle' && deviceState === 'firmwareOutdated')) {
     checkForUpdates();
+  } else if (['idle', 'upToDate', 'done'].includes(state) && Date.now() - lastAutoCheck > AUTO_CHECK_INTERVAL_MS) {
+    lastAutoCheck = Date.now();
+    checkForUpdates({ quiet: true });
   }
 });
 

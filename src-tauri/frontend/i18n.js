@@ -60,6 +60,12 @@ export function applyTranslations(root = document) {
   root.querySelectorAll('[data-i18n-title]').forEach(element => {
     element.textContent = t(element.dataset.i18nTitle);
   });
+  root.querySelectorAll('[data-i18n-tooltip]').forEach(element => {
+    element.title = t(element.dataset.i18nTooltip);
+  });
+  root.querySelectorAll('[data-i18n-aria-label]').forEach(element => {
+    element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel));
+  });
   document.documentElement.lang = current;
 }
 
