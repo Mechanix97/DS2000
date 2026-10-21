@@ -120,7 +120,9 @@ make run    # cargo tauri dev: Vite with hot reload plus the Rust backend
 | `make build-installer-windows` | Build the MSI locally |
 
 CI runs format, lint and tests on every pull request. Pushing a `v*` tag builds the MSI and attaches
-it to a draft release. The version comes from `src-tauri/Cargo.toml`.
+it to a draft release. The version comes from `src-tauri/Cargo.toml`. The release pull request bumps it
+and moves **Unreleased** in `CHANGELOG.md` under the new version; that entry opens the release
+notes, and a tag without one fails before the build.
 
 ### Releasing and updates
 
@@ -166,7 +168,8 @@ paired pull requests in this repository and the firmware's.
 Issues and pull requests are welcome. Branch from `main` and open a pull request; `main` is never
 pushed to directly. Before opening it, run `cargo fmt`, `make lint` and `make test`. Commit
 messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`,
-`docs:`, ...). For a bug, include the steps, what you expected, and the log files: **About → Open logs folder**
+`docs:`, ...). A change users will notice also adds a line under **Unreleased** in
+[CHANGELOG.md](CHANGELOG.md), written for them rather than for developers. For a bug, include the steps, what you expected, and the log files: **About → Open logs folder**
 in the app, or a log from `make run-debug`.
 
 ## Related projects

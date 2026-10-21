@@ -55,9 +55,13 @@ jobs:
           fi
 
       # The notes also hold install and checksum instructions, which do not belong in a chat
-      # message: only the generated "What's Changed" list goes out, one line per pull request with
-      # its link, without the release bump itself. The Conventional Commits prefix becomes an emoji
-      # (anything not listed gets 🔧). Discord caps an embed description at 4096 characters.
+      # message. What goes out is the "What's new" section, the release's CHANGELOG.md entry: its
+      # "### Added"-style headings become bold lines with an emoji, and wrapped list items are
+      # joined, since Discord breaks lines where the file does. Releases from before CHANGELOG.md
+      # have no such section and fall back to the generated "What's Changed" list, one line per
+      # pull request with its link, without the release bump itself and with the Conventional
+      # Commits prefix as an emoji (anything not listed gets 🔧). Discord caps an embed description
+      # at 4096 characters.
       - name: Send the announcement
         if: steps.webhook.outputs.set == 'true'
         env:
@@ -66,8 +70,14 @@ jobs:
         run: |
           tag=$(jq -r .tag_name release.json)
           url=$(jq -r .html_url release.json)
-          changes=$(jq -r '.body // ""' release.json | tr -d '\r' \
-            | sed -n "/^## What's Changed/,/^\*\*Full Changelog\*\*/p" \
+          jq -r '.body // ""' release.json | tr -d '\r' > notes.md
+          changes=$(awk '/^## / { found = ($0 ~ /^## What.s new$/); next } found' notes.md \
+            | sed -E -e ':a;N;$!ba;s/\n +/ /g' \
+            | sed -E -e 's/^### Added$/**✨ Added**/' -e 's/^### Changed$/**🔧 Changed**/' \
+                -e 's/^### Fixed$/**🐛 Fixed**/' -e 's/^### Removed$/**🗑️ Removed**/' \
+                -e 's/^### (.*)$/**\1**/' \
+            | sed '/./,$!d')
+          [ -n "$changes" ] || changes=$(sed -n "/^## What's Changed/,/^\*\*Full Changelog\*\*/p" notes.md \
             | grep '^\* ' | grep -v '^\* chore: release ' \
             | sed -E 's/^\* (.*) by @[^ ]+ in (https:[^ ]+\/pull\/([0-9]+))$/- \1 ([#\3](\2))/' \
             | sed -E -e 's/^- feat(\([^)]*\))?!?: (.)/✨ \u\2/' -e 's/^- fix(\([^)]*\))?!?: (.)/🐛 \u\2/' \
