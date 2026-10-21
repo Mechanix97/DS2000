@@ -32,7 +32,7 @@ RPC and drives the device over a serial protocol.
 
 - **Backend**: Rust, edition 2024, toolchain pinned to 1.88 (`rust-toolchain.toml`), Tauri 2, Tokio
 - **Frontend**: Vanilla JavaScript with Vite, no framework
-- **Workers**: `spawned-concurrency` GenServer actors
+- **Workers**: `spawned-concurrency` 0.5 actors (`#[protocol]` + `#[actor]`)
 - **Serial**: `serial2-tokio` for I/O, `serialport` for enumeration, `tokio-util` codec for framing
 - **Discord**: local RPC over the IPC pipe; OAuth token exchange with `reqwest`
 - **Secrets**: `keyring` (Windows Credential Manager, service `DS2000`)
@@ -46,13 +46,13 @@ src-tauri/src/
 ├── backend/
 │   ├── discord/                 # crate `discord`
 │   │   ├── discord_worker.rs    # Public handle used by the controller
-│   │   ├── discord_state.rs     # GenServer: connect, reconnect, voice settings
+│   │   ├── discord_state.rs     # Actor: connect, reconnect, voice settings
 │   │   ├── ipc.rs, pipe_message.rs  # Discord IPC pipe and its frames
 │   │   ├── oauth.rs             # Authorisation and token exchange/refresh
 │   │   └── credentials.rs       # Client id / secret / tokens passed in by the controller
 │   └── serial/                  # crate `serial`
 │       ├── serial_worker.rs     # Public handle
-│       ├── serial_state.rs      # GenServer: discovery, connection, DeviceStatus events
+│       ├── serial_state.rs      # Actor: discovery, connection, DeviceStatus events
 │       ├── port.rs              # Port discovery (USB VID filter) and handshake
 │       ├── framing.rs           # COBS + CRC-16 codec
 │       ├── serial_message.rs    # SerialMessage enum, PROTOCOL_VERSION
@@ -112,7 +112,7 @@ itself is open), `SERIAL_CONNECTION_STATUS_EVENT`,
 
 ### Workers and coordinator
 
-- The **Discord** and **serial** workers are GenServer actors. Each reports changes on an `mpsc`
+- The **Discord** and **serial** workers are actors. Each reports changes on an `mpsc`
   event channel.
 - The **coordinator** awaits both channels (no polling) and owns the mapping between them: a device
   button becomes a Discord command, a Discord voice change becomes an LED update, and both become

@@ -1,9 +1,7 @@
 use crate::error::SerialPortError;
 use crate::serial_state::DeviceStatus;
-use crate::serial_state::InCallMessage;
-use crate::serial_state::InMessage;
-use crate::serial_state::OutMessage;
 use crate::serial_state::SerialPortHandler;
+use crate::serial_state::SerialPortProtocol;
 use crate::serial_state::SerialPortState;
 use crate::serial_state::SerialWorkerEvent;
 
@@ -36,21 +34,15 @@ impl SerialWorker {
     pub async fn start(&mut self, last_used_port: Option<String>) -> Result<(), SerialPortError> {
         debug!("Serial worker started");
         self.serial_port_handler
-            .cast(InMessage::Connect(last_used_port))
-            .await
-            .map_err(SerialPortError::GenServerError)
+            .connect(last_used_port)
+            .map_err(SerialPortError::ActorError)
     }
 
     pub async fn get_port_name(&mut self) -> Result<Option<String>, SerialPortError> {
-        let om: OutMessage = self
-            .serial_port_handler
-            .call(InCallMessage::PortName)
+        self.serial_port_handler
+            .port_name()
             .await
-            .map_err(SerialPortError::GenServerError)?;
-        let OutMessage::PortName(rt) = om else {
-            return Ok(None);
-        };
-        Ok(rt)
+            .map_err(SerialPortError::ActorError)
     }
 
     pub async fn set_voice_settings(
@@ -59,72 +51,52 @@ impl SerialWorker {
         deafen: bool,
     ) -> Result<(), SerialPortError> {
         self.serial_port_handler
-            .cast(InMessage::SetVoiceSettings(mute, deafen))
-            .await
-            .map_err(SerialPortError::GenServerError)?;
-        Ok(())
+            .set_voice_settings(mute, deafen)
+            .map_err(SerialPortError::ActorError)
     }
 
     pub async fn is_connected(&mut self) -> Result<bool, SerialPortError> {
-        let om: OutMessage = self
-            .serial_port_handler
-            .call(InCallMessage::SerialPortStatus)
+        self.serial_port_handler
+            .serial_port_status()
             .await
-            .map_err(SerialPortError::GenServerError)?;
-        if let OutMessage::SerialPortStatus(st) = om {
-            return Ok(st);
-        }
-        Ok(false)
+            .map_err(SerialPortError::ActorError)
     }
 
     /// The device as last announced, with what it reported in the handshake.
     pub async fn device_status(&mut self) -> Result<DeviceStatus, SerialPortError> {
-        let om: OutMessage = self
-            .serial_port_handler
-            .call(InCallMessage::Device)
+        self.serial_port_handler
+            .device()
             .await
-            .map_err(SerialPortError::GenServerError)?;
-        let OutMessage::Device(status) = om else {
-            return Ok(DeviceStatus::Disconnected);
-        };
-        Ok(status)
+            .map_err(SerialPortError::ActorError)
     }
 
     /// Sends the device to USB boot for a firmware update and stops reconnecting until
     /// [`Self::resume`]. Returns whether there was a device to send.
     pub async fn enter_bootloader(&mut self) -> Result<bool, SerialPortError> {
-        let om: OutMessage = self
-            .serial_port_handler
-            .call(InCallMessage::EnterBootloader)
+        self.serial_port_handler
+            .enter_bootloader()
             .await
-            .map_err(SerialPortError::GenServerError)?;
-        Ok(om == OutMessage::EnteredBootloader(true))
+            .map_err(SerialPortError::ActorError)
     }
 
     /// Reconnects again once a firmware update is done or abandoned.
     pub async fn resume(&mut self) -> Result<(), SerialPortError> {
         self.serial_port_handler
-            .cast(InMessage::Resume)
-            .await
-            .map_err(SerialPortError::GenServerError)
+            .resume()
+            .map_err(SerialPortError::ActorError)
     }
 
     pub async fn shutdown(&mut self) -> Result<(), SerialPortError> {
         debug!("Shutting down serial worker");
         self.serial_port_handler
-            .call(InCallMessage::Shutdown)
+            .shutdown()
             .await
-            .map_err(|e: spawned_concurrency::error::GenServerError| {
-                SerialPortError::GenServerError(e)
-            })?;
-        Ok(())
+            .map_err(SerialPortError::ActorError)
     }
 
     pub async fn set_rgb_config(&mut self, rgb_update: &RGBConfig) -> Result<(), SerialPortError> {
         self.serial_port_handler
-            .cast(InMessage::RGBUpdate(rgb_update.clone()))
-            .await
-            .map_err(SerialPortError::GenServerError)?;
-        Ok(())
+            .rgb_update(rgb_update.clone())
+            .map_err(SerialPortError::ActorError)
     }
 }

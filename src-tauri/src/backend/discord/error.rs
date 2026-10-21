@@ -1,4 +1,4 @@
-use spawned_concurrency::error::GenServerError;
+use spawned_concurrency::ActorError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -66,8 +66,8 @@ pub enum DiscordError {
     #[error("Reqwest error: {0}")]
     ReqwestError(#[from] reqwest::Error),
 
-    #[error("Spawned GenServer Error")]
-    GenServerError(GenServerError),
+    #[error("Discord actor error: {0}")]
+    ActorError(ActorError),
 
     #[error("Error Client alredy connected")]
     ClientAlreadyConnected,

@@ -15,52 +15,50 @@ use crate::messages::voice_settings::VoiceSettingsMessage;
 use crate::port::{Port, SerialEvent, touch_1200};
 use crate::{error::SerialPortError, serial_message::SerialMessage};
 
-use spawned_concurrency::tasks::{
-    CallResponse, CastResponse, GenServer, GenServerHandle, send_after,
-};
+use spawned_concurrency::message::Message;
+use spawned_concurrency::tasks::{Actor, ActorRef, ActorStart, Context, Handler, send_after};
+use spawned_concurrency::{ActorError, Response, actor, protocol};
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 use tracing::{debug, info, warn};
+
+use serial_port_protocol::{
+    Connect, Device, EnterBootloader, PortName, Resume, RgbUpdate, SerialPortStatus,
+    SetVoiceSettings, Shutdown,
+};
 
 /// First delay after a failed connection attempt.
 const RECONNECT_BACKOFF_MIN: Duration = Duration::from_secs(1);
 /// Ceiling for the backoff. Scanning every port has a cost, so an absent device settles here.
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(15);
 
-pub type SerialPortHandler = GenServerHandle<SerialPortState>;
+pub type SerialPortHandler = ActorRef<SerialPortState>;
 
-#[derive(Clone)]
-pub enum InCallMessage {
-    PortName,
-    Shutdown,
-    SerialPortStatus,
-    /// The status last announced, with what the device reported.
-    Device,
-    /// Sends the device to USB boot for a firmware update and stops reconnecting until
-    /// [`InMessage::Resume`].
-    EnterBootloader,
-}
-
-#[derive(Clone)]
-pub enum InMessage {
-    /// Attempts to bring the port up. Rescheduled with backoff only while it fails.
-    Connect(Option<String>),
-    SetVoiceSettings(bool, bool),
-    RGBUpdate(RGBConfig),
-    /// Something the reader task observed.
-    Serial(SerialEvent),
+/// What the serial actor accepts from the rest of the application.
+#[protocol]
+pub trait SerialPortProtocol: Send + Sync {
+    /// Attempts to bring the port up, trying `preferred_port` first. Rescheduled with backoff
+    /// only while it fails.
+    fn connect(&self, preferred_port: Option<String>) -> Result<(), ActorError>;
+    fn set_voice_settings(&self, mute: bool, deafen: bool) -> Result<(), ActorError>;
+    fn rgb_update(&self, update: RGBConfig) -> Result<(), ActorError>;
     /// Reconnects again after a firmware update.
-    Resume,
+    fn resume(&self) -> Result<(), ActorError>;
+    fn port_name(&self) -> Response<Option<String>>;
+    fn shutdown(&self) -> Response<()>;
+    fn serial_port_status(&self) -> Response<bool>;
+    /// The status last announced, with what the device reported.
+    fn device(&self) -> Response<DeviceStatus>;
+    /// Sends the device to USB boot for a firmware update and stops reconnecting until
+    /// [`SerialPortProtocol::resume`]. Replies whether a device was found to send.
+    fn enter_bootloader(&self) -> Response<bool>;
 }
 
-#[derive(Clone, PartialEq)]
-pub enum OutMessage {
-    Done,
-    PortName(Option<String>),
-    SerialPortStatus(bool),
-    Device(DeviceStatus),
-    /// Whether a device was found to send to USB boot.
-    EnteredBootloader(bool),
+/// Something the reader task observed. Internal to the actor, so not part of the protocol.
+struct PortEvent(SerialEvent);
+
+impl Message for PortEvent {
+    type Result = ();
 }
 
 /// Whether a usable device is attached, as far as the application can tell.
@@ -84,7 +82,6 @@ pub enum SerialWorkerEvent {
     StatusChanged(DeviceStatus),
 }
 
-#[derive(Clone)]
 pub struct SerialPortState {
     port: Port,
     baudrate: u32,
@@ -125,10 +122,10 @@ impl SerialPortState {
 
         // Bridges the reader task's frames into the actor's mailbox, so the actor only ever
         // reacts to messages and never polls the port.
-        let mut forward_to = handle.clone();
+        let forward_to = handle.clone();
         tokio::spawn(async move {
             while let Some(event) = events_rx.recv().await {
-                if forward_to.cast(InMessage::Serial(event)).await.is_err() {
+                if forward_to.send(PortEvent(event)).is_err() {
                     break;
                 }
             }
@@ -138,15 +135,17 @@ impl SerialPortState {
     }
 
     /// Schedules another connection attempt, doubling the delay up to the ceiling.
-    fn schedule_reconnect(&mut self, handle: &GenServerHandle<Self>) {
+    fn schedule_reconnect(&mut self, ctx: &Context<Self>) {
         if self.shutdown || self.paused || self.reconnect_scheduled {
             return;
         }
         self.reconnect_scheduled = true;
         send_after(
             self.reconnect_backoff,
-            handle.clone(),
-            InMessage::Connect(None),
+            ctx.clone(),
+            Connect {
+                preferred_port: None,
+            },
         );
         self.reconnect_backoff = (self.reconnect_backoff * 2).min(RECONNECT_BACKOFF_MAX);
     }
@@ -207,148 +206,137 @@ impl SerialPortState {
     }
 }
 
-impl GenServer for SerialPortState {
-    type CallMsg = InCallMessage;
-    type CastMsg = InMessage;
-    type OutMsg = OutMessage;
-    type Error = SerialPortError;
+#[actor(protocol = SerialPortProtocol)]
+impl SerialPortState {
+    #[send_handler]
+    async fn handle_connect(&mut self, msg: Connect, ctx: &Context<Self>) {
+        self.reconnect_scheduled = false;
 
-    async fn handle_cast(
-        mut self,
-        message: Self::CastMsg,
-        handle: &GenServerHandle<Self>,
-    ) -> CastResponse<Self> {
-        if self.shutdown {
-            return CastResponse::NoReply(self);
+        if self.shutdown || self.paused || self.port.is_connected() {
+            return;
         }
 
-        match message {
-            InMessage::Connect(preferred_port) => {
-                self.reconnect_scheduled = false;
-
-                if self.paused || self.port.is_connected() {
-                    return CastResponse::NoReply(self);
-                }
-
-                // The port used last is tried first, which skips scanning every other device on
-                // the machine in the common case.
-                let connected = match &preferred_port {
-                    Some(name) => {
-                        debug!("Trying the last used port {name}");
-                        self.port
-                            .connect_and_authenticate(
-                                &PathBuf::from(name),
-                                self.baudrate,
-                                self.timeout,
-                            )
-                            .await
-                            .is_ok()
-                    }
-                    None => false,
-                };
-
-                if !connected
-                    && let Err(err) = self.port.auto_connect(self.baudrate, self.timeout).await
-                {
-                    // An incompatible device keeps being retried like an absent one, so flashing
-                    // new firmware is picked up without restarting the application.
-                    match err {
-                        SerialPortError::IncompatibleDevice(device) => {
-                            self.announce(DeviceStatus::Incompatible(device));
-                        }
-                        err => {
-                            debug!("No DS-2000 found on any serial port: {err}");
-                            self.announce(DeviceStatus::Disconnected);
-                        }
-                    }
-                    self.schedule_reconnect(handle);
-                    return CastResponse::NoReply(self);
-                }
-
-                self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
-                self.announce_port_status();
-                CastResponse::NoReply(self)
+        // The port used last is tried first, which skips scanning every other device on the
+        // machine in the common case.
+        let connected = match &msg.preferred_port {
+            Some(name) => {
+                debug!("Trying the last used port {name}");
+                self.port
+                    .connect_and_authenticate(&PathBuf::from(name), self.baudrate, self.timeout)
+                    .await
+                    .is_ok()
             }
+            None => false,
+        };
 
-            InMessage::Serial(SerialEvent::Message(message)) => {
+        if !connected && let Err(err) = self.port.auto_connect(self.baudrate, self.timeout).await {
+            // An incompatible device keeps being retried like an absent one, so flashing new
+            // firmware is picked up without restarting the application.
+            match err {
+                SerialPortError::IncompatibleDevice(device) => {
+                    self.announce(DeviceStatus::Incompatible(device));
+                }
+                err => {
+                    debug!("No DS-2000 found on any serial port: {err}");
+                    self.announce(DeviceStatus::Disconnected);
+                }
+            }
+            self.schedule_reconnect(ctx);
+            return;
+        }
+
+        self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
+        self.announce_port_status();
+    }
+
+    #[send_handler]
+    async fn handle_port_event(&mut self, msg: PortEvent, ctx: &Context<Self>) {
+        if self.shutdown {
+            return;
+        }
+
+        match msg.0 {
+            SerialEvent::Message(message) => {
                 // Straight to the controller: no queue, no waiting for someone to drain it.
                 let _ = self.observer.send(SerialWorkerEvent::Message(message));
-                CastResponse::NoReply(self)
             }
-
-            InMessage::Serial(SerialEvent::Disconnected) => {
+            SerialEvent::Disconnected => {
                 info!("Serial device disconnected, will try to reconnect");
                 self.port.disconnect().await;
                 self.announce_port_status();
-                self.schedule_reconnect(handle);
-                CastResponse::NoReply(self)
-            }
-
-            InMessage::Resume => {
-                self.paused = false;
-                // The device is expected back within seconds, not after a long backoff.
-                self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
-                self.schedule_reconnect(handle);
-                CastResponse::NoReply(self)
-            }
-
-            InMessage::SetVoiceSettings(mute, deafen) => {
-                if self.port.is_connected()
-                    && let Err(err) = self
-                        .port
-                        .send_message(&SerialMessage::VoiceSettings(VoiceSettingsMessage {
-                            mute,
-                            deafen,
-                        }))
-                        .await
-                {
-                    warn!("Could not send voice settings to the device: {err}");
-                }
-                CastResponse::NoReply(self)
-            }
-
-            InMessage::RGBUpdate(update) => {
-                if self.port.is_connected()
-                    && let Err(err) = self
-                        .port
-                        .send_message(&SerialMessage::RGBUpdate(RGBConfigMessage { update }))
-                        .await
-                {
-                    warn!("Could not send the RGB update to the device: {err}");
-                }
-                CastResponse::NoReply(self)
+                self.schedule_reconnect(ctx);
             }
         }
     }
 
-    async fn handle_call(
-        mut self,
-        message: Self::CallMsg,
-        _handle: &GenServerHandle<Self>,
-    ) -> CallResponse<Self> {
-        match message {
-            InCallMessage::PortName => {
-                let name = self.port.name.clone();
-                CallResponse::Reply(self, OutMessage::PortName(name))
-            }
-            InCallMessage::Shutdown => {
-                self.shutdown = true;
-                self.port.disconnect().await;
-                CallResponse::Reply(self, OutMessage::Done)
-            }
-            InCallMessage::SerialPortStatus => {
-                let connected = self.port.is_connected();
-                CallResponse::Reply(self, OutMessage::SerialPortStatus(connected))
-            }
-            InCallMessage::Device => {
-                let status = self.announced;
-                CallResponse::Reply(self, OutMessage::Device(status))
-            }
-            InCallMessage::EnterBootloader => {
-                let entered = !self.shutdown && self.enter_bootloader().await;
-                CallResponse::Reply(self, OutMessage::EnteredBootloader(entered))
-            }
+    #[send_handler]
+    async fn handle_resume(&mut self, _msg: Resume, ctx: &Context<Self>) {
+        if self.shutdown {
+            return;
         }
+        self.paused = false;
+        // The device is expected back within seconds, not after a long backoff.
+        self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
+        self.schedule_reconnect(ctx);
+    }
+
+    #[send_handler]
+    async fn handle_set_voice_settings(&mut self, msg: SetVoiceSettings, _ctx: &Context<Self>) {
+        if self.shutdown || !self.port.is_connected() {
+            return;
+        }
+        let message = SerialMessage::VoiceSettings(VoiceSettingsMessage {
+            mute: msg.mute,
+            deafen: msg.deafen,
+        });
+        if let Err(err) = self.port.send_message(&message).await {
+            warn!("Could not send voice settings to the device: {err}");
+        }
+    }
+
+    #[send_handler]
+    async fn handle_rgb_update(&mut self, msg: RgbUpdate, _ctx: &Context<Self>) {
+        if self.shutdown || !self.port.is_connected() {
+            return;
+        }
+        let message = SerialMessage::RGBUpdate(RGBConfigMessage { update: msg.update });
+        if let Err(err) = self.port.send_message(&message).await {
+            warn!("Could not send the RGB update to the device: {err}");
+        }
+    }
+
+    #[request_handler]
+    async fn handle_port_name(&mut self, _msg: PortName, _ctx: &Context<Self>) -> Option<String> {
+        self.port.name.clone()
+    }
+
+    #[request_handler]
+    async fn handle_shutdown(&mut self, _msg: Shutdown, _ctx: &Context<Self>) {
+        self.shutdown = true;
+        self.port.disconnect().await;
+    }
+
+    #[request_handler]
+    async fn handle_serial_port_status(
+        &mut self,
+        _msg: SerialPortStatus,
+        _ctx: &Context<Self>,
+    ) -> bool {
+        self.port.is_connected()
+    }
+
+    #[request_handler]
+    async fn handle_device(&mut self, _msg: Device, _ctx: &Context<Self>) -> DeviceStatus {
+        self.announced
+    }
+
+    #[request_handler]
+    async fn handle_enter_bootloader(
+        &mut self,
+        _msg: EnterBootloader,
+        _ctx: &Context<Self>,
+    ) -> bool {
+        !self.shutdown && self.enter_bootloader().await
     }
 }
 

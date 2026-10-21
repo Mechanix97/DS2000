@@ -8,9 +8,9 @@ use crate::credentials::{DISCORD_SCOPES, DiscordCredentials};
 use crate::error::DiscordError;
 use crate::ipc::{DiscordConnectionState, DiscordUser, IpcClient, IpcEvent};
 use crate::oauth;
-use spawned_concurrency::tasks::{
-    CallResponse, CastResponse, GenServer, GenServerHandle, send_after,
-};
+use spawned_concurrency::message::Message;
+use spawned_concurrency::tasks::{Actor, ActorRef, ActorStart, Context, Handler, send_after};
+use spawned_concurrency::{ActorError, Response, actor, protocol};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{Mutex, mpsc};
@@ -22,38 +22,41 @@ const RECONNECT_BACKOFF_MIN: Duration = Duration::from_millis(500);
 /// Ceiling for the backoff. Discord being closed for an hour must not mean an hour of retries.
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
-pub type DiscordStateHandler = GenServerHandle<DiscordState>;
+use discord_state_protocol::{
+    AccessToken, Connect, DisconnectChannel, DiscordStatus, RefreshToken, SetCredentials,
+    SetVoiceSetting, Shutdown, VoiceSettings,
+};
 
-#[derive(Clone)]
-pub enum InCallMessage {
-    DiscordStatus,
-    AccessToken,
-    RefreshToken,
-    VoiceSettings,
-    Shutdown,
-}
+pub type DiscordStateHandler = ActorRef<DiscordState>;
 
-#[derive(Clone)]
-pub enum InMessage {
+/// What the Discord actor accepts from the rest of the application.
+#[protocol]
+pub trait DiscordStateProtocol: Send + Sync {
     /// Attempts to bring the connection up. Rescheduled with backoff only while it fails.
-    Connect,
-    /// Result of an attempt that ran off the actor.
-    ConnectFinished(Box<Result<Connection, ConnectFailure>>),
-    SetVoiceSetting(bool, bool),
-    DisconnectChannel,
+    fn connect(&self) -> Result<(), ActorError>;
+    fn set_voice_setting(&self, mute: bool, deafen: bool) -> Result<(), ActorError>;
+    fn disconnect_channel(&self) -> Result<(), ActorError>;
     /// Applies credentials entered at runtime, so connecting does not require a restart.
-    SetCredentials(Box<Option<DiscordCredentials>>),
-    /// Something the reader task observed.
-    Ipc(IpcEvent),
+    fn set_credentials(&self, credentials: Option<DiscordCredentials>) -> Result<(), ActorError>;
+    fn discord_status(&self) -> Response<DiscordConnectionState>;
+    fn access_token(&self) -> Response<Option<String>>;
+    fn refresh_token(&self) -> Response<Option<String>>;
+    fn voice_settings(&self) -> Response<DiscordVoiceSettings>;
+    fn shutdown(&self) -> Response<()>;
 }
 
-#[derive(Clone, PartialEq)]
-pub enum OutMessage {
-    Done,
-    DiscordStatus(DiscordConnectionState),
-    AccessToken(Option<String>),
-    RefreshToken(Option<String>),
-    VoiceSettings(DiscordVoiceSettings),
+/// Result of an attempt that ran off the actor. Internal, so not part of the protocol.
+struct ConnectFinished(Result<Connection, ConnectFailure>);
+
+impl Message for ConnectFinished {
+    type Result = ();
+}
+
+/// Something the reader task observed. Internal, so not part of the protocol.
+struct Ipc(IpcEvent);
+
+impl Message for Ipc {
+    type Result = ();
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -88,9 +91,6 @@ pub enum DiscordWorkerEvent {
     },
 }
 
-/// `Clone` is required by the actor framework, not by this code: the state is moved through each
-/// handler and handed back. Everything cloneable here is either cheap or an `Arc`.
-#[derive(Clone)]
 pub struct DiscordState {
     ipc_client: IpcClient,
     /// Kept so a connection attempt running off the actor can build its own client wired to the
@@ -144,10 +144,10 @@ impl DiscordState {
 
         // Bridges the reader task's events into the actor's mailbox, so the actor only ever
         // reacts to messages and never polls anything.
-        let mut forward_to = handle.clone();
+        let forward_to = handle.clone();
         tokio::spawn(async move {
             while let Some(event) = events_rx.recv().await {
-                if forward_to.cast(InMessage::Ipc(event)).await.is_err() {
+                if forward_to.send(Ipc(event)).is_err() {
                     break;
                 }
             }
@@ -163,7 +163,7 @@ impl DiscordState {
     /// message at a time. Doing it inline left the actor mute for as long as that modal stayed
     /// open, so every `call` in that window timed out, breaking the Discord tab during the one
     /// moment a new user is actually looking at it.
-    fn begin_connecting(&mut self, handle: &GenServerHandle<Self>) {
+    fn begin_connecting(&mut self, ctx: &Context<Self>) {
         if self.connecting || self.shutdown {
             return;
         }
@@ -174,13 +174,11 @@ impl DiscordState {
         self.connecting = true;
         let events = self.events.clone();
         let observer = self.observer.clone();
-        let mut handle = handle.clone();
+        let ctx = ctx.clone();
 
         tokio::spawn(async move {
             let outcome = connect(credentials, events, observer).await;
-            let _ = handle
-                .cast(InMessage::ConnectFinished(Box::new(outcome)))
-                .await;
+            let _ = ctx.send(ConnectFinished(outcome));
         });
     }
 
@@ -232,23 +230,22 @@ impl DiscordState {
     }
 
     /// Schedules another attempt, doubling the delay up to the ceiling.
-    fn schedule_reconnect(&mut self, handle: &GenServerHandle<Self>) {
+    fn schedule_reconnect(&mut self, ctx: &Context<Self>) {
         if self.shutdown || self.credentials.is_none() || self.reconnect_scheduled {
             return;
         }
         self.reconnect_scheduled = true;
-        send_after(self.reconnect_backoff, handle.clone(), InMessage::Connect);
+        send_after(self.reconnect_backoff, ctx.clone(), Connect);
         self.reconnect_backoff = (self.reconnect_backoff * 2).min(RECONNECT_BACKOFF_MAX);
     }
 }
 
 /// Why a connection attempt did not succeed.
 ///
-/// A summary rather than the original error because the actor framework requires its messages to
-/// be `Clone`, and `DiscordError` wraps I/O and HTTP errors that are not. The actor only needs to
-/// tell "Discord is closed" apart from anything else; the detail is already logged where it
-/// happened.
-#[derive(Clone, Debug)]
+/// A summary rather than the original error: the actor only needs to tell "Discord is closed"
+/// apart from what needs the user and from anything else, and the detail is already logged where
+/// it happened.
+#[derive(Debug)]
 pub enum ConnectFailure {
     /// The RPC pipe is not there, which is simply what a closed Discord looks like.
     DiscordNotRunning,
@@ -282,7 +279,6 @@ impl From<DiscordError> for ConnectFailure {
 }
 
 /// Everything a successful connection produces.
-#[derive(Clone)]
 pub struct Connection {
     client: IpcClient,
     user: Option<DiscordUser>,
@@ -375,178 +371,190 @@ async fn obtain_token(
     ))
 }
 
-impl GenServer for DiscordState {
-    type CallMsg = InCallMessage;
-    type CastMsg = InMessage;
-    type OutMsg = OutMessage;
-    type Error = DiscordError;
+#[actor(protocol = DiscordStateProtocol)]
+impl DiscordState {
+    #[send_handler]
+    async fn handle_connect(&mut self, _msg: Connect, ctx: &Context<Self>) {
+        self.reconnect_scheduled = false;
 
-    async fn handle_cast(
-        mut self,
-        message: Self::CastMsg,
-        handle: &GenServerHandle<Self>,
-    ) -> CastResponse<Self> {
-        if self.shutdown {
-            return CastResponse::NoReply(self);
+        if self.shutdown || self.credentials.is_none() || self.ipc_client.is_connected() {
+            return;
         }
+        self.begin_connecting(ctx);
+    }
 
-        match message {
-            InMessage::Connect => {
-                self.reconnect_scheduled = false;
+    #[send_handler]
+    async fn handle_connect_finished(&mut self, msg: ConnectFinished, ctx: &Context<Self>) {
+        if self.shutdown {
+            return;
+        }
+        self.connecting = false;
 
-                if self.credentials.is_none() || self.ipc_client.is_connected() {
-                    return CastResponse::NoReply(self);
-                }
-                self.begin_connecting(handle);
-                CastResponse::NoReply(self)
-            }
-
-            InMessage::ConnectFinished(outcome) => {
-                self.connecting = false;
-
-                match *outcome {
-                    Ok(connection) => {
-                        self.ipc_client = connection.client;
-                        let (access, refresh) = connection.tokens;
-                        self.set_tokens(access, refresh);
-                        // Reset the backoff so a later drop retries promptly.
-                        self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
-                        self.announce_running(true);
-                        self.announce_connection();
-                        let _ = self
-                            .observer
-                            .send(DiscordWorkerEvent::UserChanged(connection.user));
-                        self.update_voice_settings(connection.voice_settings).await;
-                    }
-                    Err(failure) => {
-                        self.ipc_client.disconnect().await;
-                        // Any failure past opening the pipe means Discord is there.
-                        self.announce_running(!matches!(
-                            failure,
-                            ConnectFailure::DiscordNotRunning
-                        ));
-                        self.announce_connection();
-
-                        match failure {
-                            // The common case: Discord is closed. It will open eventually, so
-                            // keep trying.
-                            ConnectFailure::DiscordNotRunning => {
-                                debug!("Discord is not running, will retry");
-                                self.schedule_reconnect(handle);
-                            }
-                            ConnectFailure::Other(reason) => {
-                                warn!("Could not connect to Discord: {reason}");
-                                self.schedule_reconnect(handle);
-                            }
-                            // Nothing will change until the user does something, so stop. The
-                            // next attempt comes from them pressing Connect, which arrives as
-                            // SetCredentials.
-                            ConnectFailure::NeedsUserAction(reason) => {
-                                warn!("Discord authorisation needs your attention: {reason}");
-                            }
-                        }
-                    }
-                }
-                CastResponse::NoReply(self)
-            }
-
-            InMessage::Ipc(IpcEvent::VoiceSettings { mute, deafen }) => {
-                debug!("Voice settings pushed by Discord — mute: {mute} deafen: {deafen}");
-                self.update_voice_settings(DiscordVoiceSettings { mute, deafen })
-                    .await;
-                CastResponse::NoReply(self)
-            }
-
-            InMessage::Ipc(IpcEvent::Disconnected) => {
-                self.ipc_client.disconnect().await;
-                self.announce_connection();
-                self.schedule_reconnect(handle);
-                CastResponse::NoReply(self)
-            }
-
-            InMessage::SetCredentials(credentials) => {
-                let credentials = *credentials;
-                let changed = self.credentials != credentials;
-
-                // Already connected with exactly these credentials: nothing to do.
-                if !changed && self.ipc_client.is_connected() {
-                    return CastResponse::NoReply(self);
-                }
-
-                if changed {
-                    // Any live session belongs to the previous application.
-                    self.ipc_client.disconnect().await;
-                    self.announce_connection();
-                    self.credentials = credentials;
-                }
+        match msg.0 {
+            Ok(connection) => {
+                self.ipc_client = connection.client;
+                let (access, refresh) = connection.tokens;
+                self.set_tokens(access, refresh);
+                // Reset the backoff so a later drop retries promptly.
                 self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
-
-                if self.credentials.is_some() {
-                    // This message is also how the user retries after an authorisation failure,
-                    // which is the only thing that restarts a connection parked by
-                    // `NeedsUserAction`. Resending unchanged credentials therefore has to mean
-                    // "try again", not "nothing changed".
-                    info!("Discord credentials set, connecting");
-                    self.begin_connecting(handle);
-                } else {
-                    info!("Discord credentials cleared, connection stopped");
-                }
-                CastResponse::NoReply(self)
+                self.announce_running(true);
+                self.announce_connection();
+                let _ = self
+                    .observer
+                    .send(DiscordWorkerEvent::UserChanged(connection.user));
+                self.update_voice_settings(connection.voice_settings).await;
             }
+            Err(failure) => {
+                self.ipc_client.disconnect().await;
+                // Any failure past opening the pipe means Discord is there.
+                self.announce_running(!matches!(failure, ConnectFailure::DiscordNotRunning));
+                self.announce_connection();
 
-            InMessage::SetVoiceSetting(mute, deafen) => {
-                if let Err(err) = self.ipc_client.set_voice_settings(mute, deafen).await {
-                    warn!("Could not set voice settings: {err}");
-                    self.ipc_client.disconnect().await;
-                    self.announce_connection();
-                    self.schedule_reconnect(handle);
+                match failure {
+                    // The common case: Discord is closed. It will open eventually, so keep
+                    // trying.
+                    ConnectFailure::DiscordNotRunning => {
+                        debug!("Discord is not running, will retry");
+                        self.schedule_reconnect(ctx);
+                    }
+                    ConnectFailure::Other(reason) => {
+                        warn!("Could not connect to Discord: {reason}");
+                        self.schedule_reconnect(ctx);
+                    }
+                    // Nothing will change until the user does something, so stop. The next
+                    // attempt comes from them pressing Connect, which arrives as SetCredentials.
+                    ConnectFailure::NeedsUserAction(reason) => {
+                        warn!("Discord authorisation needs your attention: {reason}");
+                    }
                 }
-                CastResponse::NoReply(self)
-            }
-
-            InMessage::DisconnectChannel => {
-                if let Err(err) = self.ipc_client.select_voice_channel(None).await {
-                    warn!("Could not leave the voice channel: {err}");
-                }
-                CastResponse::NoReply(self)
             }
         }
     }
 
-    async fn handle_call(
-        mut self,
-        message: Self::CallMsg,
-        _handle: &GenServerHandle<Self>,
-    ) -> CallResponse<Self> {
-        match message {
-            InCallMessage::DiscordStatus => {
-                let state = self.ipc_client.state.clone();
-                CallResponse::Reply(self, OutMessage::DiscordStatus(state))
+    #[send_handler]
+    async fn handle_ipc(&mut self, msg: Ipc, ctx: &Context<Self>) {
+        if self.shutdown {
+            return;
+        }
+
+        match msg.0 {
+            IpcEvent::VoiceSettings { mute, deafen } => {
+                debug!("Voice settings pushed by Discord — mute: {mute} deafen: {deafen}");
+                self.update_voice_settings(DiscordVoiceSettings { mute, deafen })
+                    .await;
             }
-            InCallMessage::VoiceSettings => {
-                let settings = *self.voice_settings.lock().await;
-                CallResponse::Reply(self, OutMessage::VoiceSettings(settings))
-            }
-            InCallMessage::AccessToken => {
-                let token = self
-                    .credentials
-                    .as_ref()
-                    .and_then(|c| c.access_token.clone());
-                CallResponse::Reply(self, OutMessage::AccessToken(token))
-            }
-            InCallMessage::RefreshToken => {
-                let token = self
-                    .credentials
-                    .as_ref()
-                    .and_then(|c| c.refresh_token.clone());
-                CallResponse::Reply(self, OutMessage::RefreshToken(token))
-            }
-            InCallMessage::Shutdown => {
-                self.shutdown = true;
+            IpcEvent::Disconnected => {
                 self.ipc_client.disconnect().await;
-                CallResponse::Reply(self, OutMessage::Done)
+                self.announce_connection();
+                self.schedule_reconnect(ctx);
             }
         }
+    }
+
+    #[send_handler]
+    async fn handle_set_credentials(&mut self, msg: SetCredentials, ctx: &Context<Self>) {
+        if self.shutdown {
+            return;
+        }
+
+        let credentials = msg.credentials;
+        let changed = self.credentials != credentials;
+
+        // Already connected with exactly these credentials: nothing to do.
+        if !changed && self.ipc_client.is_connected() {
+            return;
+        }
+
+        if changed {
+            // Any live session belongs to the previous application.
+            self.ipc_client.disconnect().await;
+            self.announce_connection();
+            self.credentials = credentials;
+        }
+        self.reconnect_backoff = RECONNECT_BACKOFF_MIN;
+
+        if self.credentials.is_some() {
+            // This message is also how the user retries after an authorisation failure, which is
+            // the only thing that restarts a connection parked by `NeedsUserAction`. Resending
+            // unchanged credentials therefore has to mean "try again", not "nothing changed".
+            info!("Discord credentials set, connecting");
+            self.begin_connecting(ctx);
+        } else {
+            info!("Discord credentials cleared, connection stopped");
+        }
+    }
+
+    #[send_handler]
+    async fn handle_set_voice_setting(&mut self, msg: SetVoiceSetting, ctx: &Context<Self>) {
+        if self.shutdown {
+            return;
+        }
+        if let Err(err) = self
+            .ipc_client
+            .set_voice_settings(msg.mute, msg.deafen)
+            .await
+        {
+            warn!("Could not set voice settings: {err}");
+            self.ipc_client.disconnect().await;
+            self.announce_connection();
+            self.schedule_reconnect(ctx);
+        }
+    }
+
+    #[send_handler]
+    async fn handle_disconnect_channel(&mut self, _msg: DisconnectChannel, _ctx: &Context<Self>) {
+        if self.shutdown {
+            return;
+        }
+        if let Err(err) = self.ipc_client.select_voice_channel(None).await {
+            warn!("Could not leave the voice channel: {err}");
+        }
+    }
+
+    #[request_handler]
+    async fn handle_discord_status(
+        &mut self,
+        _msg: DiscordStatus,
+        _ctx: &Context<Self>,
+    ) -> DiscordConnectionState {
+        self.ipc_client.state.clone()
+    }
+
+    #[request_handler]
+    async fn handle_voice_settings(
+        &mut self,
+        _msg: VoiceSettings,
+        _ctx: &Context<Self>,
+    ) -> DiscordVoiceSettings {
+        *self.voice_settings.lock().await
+    }
+
+    #[request_handler]
+    async fn handle_access_token(
+        &mut self,
+        _msg: AccessToken,
+        _ctx: &Context<Self>,
+    ) -> Option<String> {
+        self.credentials
+            .as_ref()
+            .and_then(|c| c.access_token.clone())
+    }
+
+    #[request_handler]
+    async fn handle_refresh_token(
+        &mut self,
+        _msg: RefreshToken,
+        _ctx: &Context<Self>,
+    ) -> Option<String> {
+        self.credentials
+            .as_ref()
+            .and_then(|c| c.refresh_token.clone())
+    }
+
+    #[request_handler]
+    async fn handle_shutdown(&mut self, _msg: Shutdown, _ctx: &Context<Self>) {
+        self.shutdown = true;
+        self.ipc_client.disconnect().await;
     }
 }
 

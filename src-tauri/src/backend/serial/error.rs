@@ -1,4 +1,4 @@
-use spawned_concurrency::error::GenServerError;
+use spawned_concurrency::ActorError;
 use thiserror::Error;
 
 use crate::messages::device_info::DeviceInfoMessage;
@@ -33,8 +33,8 @@ pub enum SerialPortError {
     #[error("I/O error: {0}")]
     IoError(std::io::Error),
 
-    #[error("Spawned GenServer Error")]
-    GenServerError(GenServerError),
+    #[error("Serial actor error: {0}")]
+    ActorError(ActorError),
 }
 
 impl PartialEq for SerialPortError {
@@ -62,7 +62,7 @@ impl PartialEq for SerialPortError {
             (SerialPortError::InternalError, SerialPortError::InternalError) => true,
             // Compare IoError based on ErrorKind
             (SerialPortError::IoError(e1), SerialPortError::IoError(e2)) => e1.kind() == e2.kind(),
-            (SerialPortError::GenServerError(_e1), SerialPortError::GenServerError(_e2)) => true,
+            (SerialPortError::ActorError(_e1), SerialPortError::ActorError(_e2)) => true,
             _ => false,
         }
     }

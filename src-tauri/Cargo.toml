@@ -93,5 +93,4 @@ serialport = { version = "4.10", default-features = false }
 tokio-util = { version = "0.7", features = ["codec"] }
 futures-util = { version = "0.3", features = ["sink"] }
 thiserror = "2.0"
-spawned-concurrency = "0.2.2"
-spawned-rt = "0.2.2"
+spawned-concurrency = "0.5.0"
