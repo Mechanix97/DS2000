@@ -134,6 +134,9 @@ published.
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep a copy elsewhere: if the key is lost, installed copies
   can no longer be updated and users have to reinstall by hand.
 - A local `make build-installer-windows` signs only when `TAURI_SIGNING_PRIVATE_KEY` is set.
+- Publishing a release (not a pre-release) posts its changes to Discord through the webhook in the
+  repository secret `DISCORD_WEBHOOK_URL`. Without the secret nothing is posted. **Actions →
+  Announce → Run workflow** sends it again for a given tag.
 
 Logging uses `RUST_LOG`, for example `RUST_LOG=serial=debug,discord=info`; without it, `info`. The
 same lines go to the console and to the log file.

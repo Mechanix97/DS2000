@@ -1,0 +1,89 @@
+name: Announce
+
+on:
+  # Releases start as drafts, so publishing one is the moment it goes out to users,
+  # and the moment to tell them. Drafts and pre-releases are not announced.
+  release:
+    types: [published]
+  # Sends the announcement for an existing release again, e.g. after setting up the webhook or if
+  # Discord was down when it was published.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to announce (e.g. v0.4.0)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  discord:
+    name: Discord
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+
+    steps:
+      # Forks have no webhook: nothing to announce, and not a failure.
+      - name: Check the webhook
+        id: webhook
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "::notice::The DISCORD_WEBHOOK_URL secret is not set; nothing is announced"
+            echo "set=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "set=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Passed through env, never inlined into the script: the release notes are free text.
+      - name: Read the release
+        if: steps.webhook.outputs.set == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_RELEASE: ${{ toJSON(github.event.release) }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > release.json
+          else
+            printf '%s' "$EVENT_RELEASE" > release.json
+          fi
+          if [ "$(jq -r .draft release.json)" = true ]; then
+            echo "::error::$(jq -r .tag_name release.json) is still a draft"
+            exit 1
+          fi
+
+      # The notes also hold install and checksum instructions, which do not belong in a chat
+      # message: only the generated "What's Changed" list goes out, one line per pull request with
+      # its link, without the release bump itself. The Conventional Commits prefix becomes an emoji
+      # (anything not listed gets 🔧). Discord caps an embed description at 4096 characters.
+      - name: Send the announcement
+        if: steps.webhook.outputs.set == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REPOSITORY: ${{ github.event.repository.name }}
+        run: |
+          tag=$(jq -r .tag_name release.json)
+          url=$(jq -r .html_url release.json)
+          changes=$(jq -r '.body // ""' release.json | tr -d '\r' \
+            | sed -n "/^## What's Changed/,/^\*\*Full Changelog\*\*/p" \
+            | grep '^\* ' | grep -v '^\* chore: release ' \
+            | sed -E 's/^\* (.*) by @[^ ]+ in (https:[^ ]+\/pull\/([0-9]+))$/- \1 ([#\3](\2))/' \
+            | sed -E -e 's/^- feat(\([^)]*\))?!?: (.)/✨ \u\2/' -e 's/^- fix(\([^)]*\))?!?: (.)/🐛 \u\2/' \
+                -e 's/^- docs(\([^)]*\))?!?: (.)/📝 \u\2/' -e 's/^- perf(\([^)]*\))?!?: (.)/⚡ \u\2/' \
+                -e 's/^- [a-z]+(\([^)]*\))?!?: (.)/🔧 \u\2/' \
+            || true)
+          description=$(printf '%s\n\n[Release notes and download](%s)' "$changes" "$url" \
+            | sed '/./,$!d' | head -c 4000)
+          jq -n \
+            --arg content "🚀 **$REPOSITORY $tag is out**" \
+            --arg title "$REPOSITORY $tag" \
+            --arg url "$url" \
+            --arg description "$description" \
+            '{content: $content, allowed_mentions: {parse: []},
+              embeds: [{title: $title, url: $url, description: $description, color: 5793266}]}' \
+            > payload.json
+          cat payload.json
+          curl --fail-with-body --silent --show-error \
+            -H 'Content-Type: application/json' -d @payload.json "$DISCORD_WEBHOOK_URL"
