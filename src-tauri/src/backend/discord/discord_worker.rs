@@ -1,7 +1,7 @@
 use crate::credentials::DiscordCredentials;
 use crate::discord_state::{
-    DiscordState, DiscordStateHandler, DiscordVoiceSettings, DiscordWorkerEvent, InCallMessage,
-    InMessage, OutMessage,
+    DiscordState, DiscordStateHandler, DiscordStateProtocol, DiscordVoiceSettings,
+    DiscordWorkerEvent,
 };
 use crate::error::DiscordError;
 
@@ -49,9 +49,8 @@ impl DiscordWorker {
     /// Begins connecting. Safe to call with no credentials: it is then a no-op.
     pub async fn start(&mut self) -> Result<(), DiscordError> {
         self.discord_handler
-            .cast(InMessage::Connect)
-            .await
-            .map_err(DiscordError::GenServerError)
+            .connect()
+            .map_err(DiscordError::ActorError)
     }
 
     /// Applies credentials entered at runtime. Passing `None` stops the connection.
@@ -60,9 +59,8 @@ impl DiscordWorker {
         credentials: Option<DiscordCredentials>,
     ) -> Result<(), DiscordError> {
         self.discord_handler
-            .cast(InMessage::SetCredentials(Box::new(credentials)))
-            .await
-            .map_err(DiscordError::GenServerError)
+            .set_credentials(credentials)
+            .map_err(DiscordError::ActorError)
     }
 
     pub async fn get_voice_settings(&self) -> DiscordVoiceSettings {
@@ -75,9 +73,8 @@ impl DiscordWorker {
         deafen: bool,
     ) -> Result<(), DiscordError> {
         self.discord_handler
-            .cast(InMessage::SetVoiceSetting(mute, deafen))
-            .await
-            .map_err(DiscordError::GenServerError)
+            .set_voice_setting(mute, deafen)
+            .map_err(DiscordError::ActorError)
     }
 
     /// Whether an authenticated RPC session is open.
@@ -90,41 +87,29 @@ impl DiscordWorker {
 
     pub async fn disconnect(&mut self) -> Result<(), DiscordError> {
         self.discord_handler
-            .cast(InMessage::DisconnectChannel)
-            .await
-            .map_err(DiscordError::GenServerError)
+            .disconnect_channel()
+            .map_err(DiscordError::ActorError)
     }
 
     pub async fn get_access_token(&mut self) -> Result<Option<String>, DiscordError> {
-        let message: OutMessage = self
-            .discord_handler
-            .call(InCallMessage::AccessToken)
+        self.discord_handler
+            .access_token()
             .await
-            .map_err(DiscordError::GenServerError)?;
-        let OutMessage::AccessToken(token) = message else {
-            return Ok(None);
-        };
-        Ok(token)
+            .map_err(DiscordError::ActorError)
     }
 
     pub async fn get_refresh_token(&mut self) -> Result<Option<String>, DiscordError> {
-        let message: OutMessage = self
-            .discord_handler
-            .call(InCallMessage::RefreshToken)
+        self.discord_handler
+            .refresh_token()
             .await
-            .map_err(DiscordError::GenServerError)?;
-        let OutMessage::RefreshToken(token) = message else {
-            return Ok(None);
-        };
-        Ok(token)
+            .map_err(DiscordError::ActorError)
     }
 
     pub async fn shutdown(&mut self) -> Result<(), DiscordError> {
         self.discord_handler
-            .call(InCallMessage::Shutdown)
+            .shutdown()
             .await
-            .map_err(DiscordError::GenServerError)?;
-        Ok(())
+            .map_err(DiscordError::ActorError)
     }
 }
 

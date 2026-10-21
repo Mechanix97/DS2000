@@ -13,7 +13,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 reqwest.workspace = true
 rand.workspace = true
-spawned-rt.workspace = true
 spawned-concurrency.workspace = true
 
 [dev-dependencies]
