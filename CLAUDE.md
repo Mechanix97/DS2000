@@ -173,7 +173,9 @@ step with `.github/workflows/ci.yml`.
 The version comes from `src-tauri/Cargo.toml`. Pushing a `v*` tag runs `release.yml`, which builds
 the MSI, signs it for the updater (secrets `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), writes `latest.json` and attaches all of it to a draft
-release. The app offers an update only once the release is published.
+release. The app offers an update only once the release is published. Publishing it also runs
+`announce.yml`, which posts the release's "What's Changed" list to Discord (secret
+`DISCORD_WEBHOOK_URL`); the same workflow lives in DS2000-Firmware.
 
 ### Updates
 
