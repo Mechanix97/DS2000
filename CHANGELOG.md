@@ -9,6 +9,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-23
+
+Serial protocol 1: pairs with DS2000-Firmware 0.2.1.
+
+### Fixed
+
+- The app reconnects to Discord on its own a week after linking. Discord's sign-in expires after
+  seven days, and the app used to stay disconnected until the credentials were entered again.
+
 ## [0.4.0] - 2026-10-21
 
 Serial protocol 1: pairs with DS2000-Firmware 0.2.1.
@@ -63,7 +72,8 @@ First public release. Serial protocol 1: pairs with DS2000-Firmware 0.2.0.
 - A Windows installer on every release, with its SHA-256.
 - **About → Check for updates** installs newer releases.
 
-[Unreleased]: https://github.com/Mechanix97/DS2000/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Mechanix97/DS2000/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Mechanix97/DS2000/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Mechanix97/DS2000/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Mechanix97/DS2000/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Mechanix97/DS2000/releases/tag/v0.2.0
