@@ -174,8 +174,13 @@ The version comes from `src-tauri/Cargo.toml`. Pushing a `v*` tag runs `release.
 the MSI, signs it for the updater (secrets `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), writes `latest.json` and attaches all of it to a draft
 release. The app offers an update only once the release is published. Publishing it also runs
-`announce.yml`, which posts the release's "What's Changed" list to Discord (secret
+`announce.yml`, which posts the release notes' "What's new" section to Discord (secret
 `DISCORD_WEBHOOK_URL`); the same workflow lives in DS2000-Firmware.
+
+`CHANGELOG.md` (Keep a Changelog) is written for users, not developers. A PR with a change users
+notice adds a line under **Unreleased**; the release PR bumps the version and moves **Unreleased**
+under `## [x.y.z] - date`, with its compare link at the bottom. `release.yml` puts that entry at
+the top of the notes as "What's new" and fails on a tag that has none.
 
 ### Updates
 
