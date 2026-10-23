@@ -295,13 +295,33 @@ async fn connect(
     events: mpsc::UnboundedSender<IpcEvent>,
     observer: mpsc::UnboundedSender<DiscordWorkerEvent>,
 ) -> Result<Connection, ConnectFailure> {
-    let mut client = IpcClient::new(events);
+    let mut credentials = credentials;
 
-    client.connect().await?;
-    client.handshake(&credentials.client_id).await?;
+    // At most two rounds: the second runs without the stored access token, so it cannot loop.
+    let (client, user, tokens) = loop {
+        let mut client = IpcClient::new(events.clone());
 
-    let (token, tokens) = obtain_token(&mut client, &credentials, &observer).await?;
-    let user = client.authenticate(&token).await?;
+        client.connect().await?;
+        client.handshake(&credentials.client_id).await?;
+
+        let reused_stored_token = credentials.access_token.is_some();
+        let (token, tokens) = obtain_token(&mut client, &credentials, &observer).await?;
+
+        match client.authenticate(&token).await {
+            Ok(user) => break (client, user, tokens),
+            Err(err) if should_retry_without_stored_token(reused_stored_token, &err) => {
+                // Access tokens last a week and the stored one is reused without knowing when it
+                // was issued, so after a week Discord rejects it. Parking on that as "needs the
+                // user" left the app silently disconnected until the credentials were re-entered.
+                // Starting over on a fresh pipe also sidesteps whatever Discord does with a
+                // session whose AUTHENTICATE failed.
+                info!("Discord rejected the stored access token ({err}), trying the refresh token");
+                client.disconnect().await;
+                credentials.access_token = None;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    };
 
     // Subscribe before reading the current value: the other order leaves a window where a change
     // is neither in the snapshot nor delivered as an event.
@@ -316,6 +336,19 @@ async fn connect(
         voice_settings: DiscordVoiceSettings { mute, deafen },
     })
     .map_err(ConnectFailure::from)
+}
+
+/// Whether a failed `AUTHENTICATE` is worth one more attempt without the stored access token.
+///
+/// Only when the token came from storage, which is when it may simply have expired, and only when
+/// Discord itself refused it. A pipe or timeout failure says nothing about the token, and a token
+/// that was just refreshed or issued failing again would only repeat the failure.
+fn should_retry_without_stored_token(reused_stored_token: bool, err: &DiscordError) -> bool {
+    reused_stored_token
+        && matches!(
+            err,
+            DiscordError::Rpc(_) | DiscordError::AuthenticationFailed
+        )
 }
 
 /// Produces a usable access token, reusing or refreshing what is stored before falling back to
@@ -654,6 +687,33 @@ mod tests {
             observed.try_recv().expect("an announcement"),
             DiscordWorkerEvent::ConnectionChanged { connected: false }
         );
+    }
+
+    #[test]
+    fn a_rejected_stored_token_is_retried_without_it() {
+        // What an expired token gets back from AUTHENTICATE.
+        let rejected = DiscordError::Rpc("Invalid access token".to_owned());
+        assert!(should_retry_without_stored_token(true, &rejected));
+        assert!(should_retry_without_stored_token(
+            true,
+            &DiscordError::AuthenticationFailed
+        ));
+    }
+
+    #[test]
+    fn a_fresh_token_or_a_transport_failure_is_not_retried() {
+        let rejected = DiscordError::Rpc("Invalid access token".to_owned());
+        // Just refreshed or issued: retrying would only repeat the same rejection.
+        assert!(!should_retry_without_stored_token(false, &rejected));
+        // Nothing to do with the token, and the reconnect backoff already handles these.
+        assert!(!should_retry_without_stored_token(
+            true,
+            &DiscordError::CommandTimedOut
+        ));
+        assert!(!should_retry_without_stored_token(
+            true,
+            &DiscordError::PipeErrorReading
+        ));
     }
 
     #[tokio::test]
