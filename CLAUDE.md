@@ -89,7 +89,8 @@ src-tauri/frontend/
 ├── firmwareUpdater.js           # About tab: firmware updates, also checked when the device connects
 ├── logsFolder.js                # About tab: open the logs folder
 ├── whatsNew.js, changelog.js    # "What's new" dialog after an update, and the full history from
-│                                # About → Changelog, both from the bundled CHANGELOG.md
+│                                # About → Changelog: the app's bundled CHANGELOG.md, the firmware's
+│                                # fetched from GitHub
 ├── links.js                     # Project site URLs, in the app's language (/{lang}/...)
 ├── serverButtonEvents.js        # Site and social links in About
 ├── i18n.js                      # Bundled translations; the language is persisted by the backend
@@ -108,7 +109,8 @@ src-tauri/frontend/
 `set_startup_preferences`, `desktop_notifications`, `set_desktop_notifications`, `ui_language`,
 `set_ui_language`, `release_notes_unseen`,
 `release_notes_seen`; `update_check` and `update_install`
-in `controller/updater.rs`; `firmware_check` and `firmware_install` in `controller/firmware.rs`.
+in `controller/updater.rs`; `firmware_check`, `firmware_install` and `firmware_changelog` in
+`controller/firmware.rs`.
 
 **Events** (emitted by `coordinator.rs`): `DISCORD_CONNECTION_STATUS_EVENT`,
 `DISCORD_VOICE_SETTINGS_EVENT`, `DISCORD_AWAITING_AUTHORIZATION_EVENT`, `DISCORD_USER_EVENT`

@@ -64,7 +64,7 @@ function render() {
 
 function setState(next) {
   state = next;
-  setAppUpdateAvailable(state === 'available' ? version : null);
+  setAppUpdateAvailable(state === 'available' ? version : null, installUpdate);
   render();
 }
 

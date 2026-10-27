@@ -184,7 +184,7 @@
     "discordConnectedTitle": "Conectado a Discord",
     "discordConnectedAs": "Como {name}",
     "appUpdateAvailable": "DS2000 {version} disponible",
-    "appUpdateAvailableDetail": "Instalala desde Acerca",
+    "appUpdateAvailableDetail": "La app se reinicia para instalarla",
     "discordClosed": "Discord cerrado",
     "discordClosedDetail": "Abrilo: DS2000 se conecta solo"
   },
@@ -202,7 +202,11 @@
       "security": "Seguridad"
     },
     "historyTitle": "Historial de cambios",
-    "historyIntro": "Tenés DS2000 {version}."
+    "historyIntro": "Tenés DS2000 {version}.",
+    "firmwareTitle": "Historial del firmware",
+    "firmwareIntro": "Último firmware: {version}.",
+    "firmwareLoading": "Cargando…",
+    "firmwareFailed": "No se pudo cargar el historial del firmware. Revisá la conexión y probá de nuevo."
   },
   "notifications": {
     "deviceDisconnected": {

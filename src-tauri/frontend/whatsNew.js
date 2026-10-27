@@ -9,7 +9,8 @@ import changelog from '../../CHANGELOG.md?raw'
 
 // "What's new": on the first start after an update, the CHANGELOG.md entries since the version
 // the user had. The backend says which versions (commands.rs, `release_notes_unseen`). The same
-// dialog shows the whole history from About → Changelog.
+// dialog shows the whole history from About → Changelog, for the app and for the firmware, whose
+// changelog is fetched from GitHub (firmware.rs, `firmware_changelog`).
 
 const dialog = document.getElementById('whats-new');
 const title = document.getElementById('whats-new-title');
@@ -21,8 +22,13 @@ const SECTIONS = ['added', 'changed', 'deprecated', 'removed', 'fixed', 'securit
 
 let entries = [];
 let running = null;
-// 'update' after an update, 'history' from the About tab: only the heading and intro differ.
+// 'update' after an update; 'history' and 'firmware' from the About tab.
 let mode = 'update';
+// The firmware changelog: 'loading' | 'failed' | 'ready', and its latest published version.
+let firmwareState = 'loading';
+let firmwareLatest = null;
+// Bumped on each request, so a reply to one the user has moved on from is dropped.
+let firmwareRequest = 0;
 
 function inline(text) {
   return parseInline(text).map(run => {
@@ -44,12 +50,25 @@ function sectionName(text) {
 }
 
 // Rendered from the entries rather than kept, so a language change redraws the headings.
+function introText() {
+  if (mode === 'update') return t('whatsNew.intro', { version: running });
+  if (mode === 'history') return t('whatsNew.historyIntro', { version: running });
+  return {
+    loading: t('whatsNew.firmwareLoading'),
+    failed: t('whatsNew.firmwareFailed'),
+    ready: t('whatsNew.firmwareIntro', { version: firmwareLatest }),
+  }[firmwareState];
+}
+
 function render() {
-  const history = mode === 'history';
-  title.textContent = t(history ? 'whatsNew.historyTitle' : 'whatsNew.title');
-  intro.textContent = t(history ? 'whatsNew.historyIntro' : 'whatsNew.intro', { version: running });
-  // The changelog is written in English only.
-  if (language() !== 'en') intro.textContent += ` ${t('whatsNew.englishOnly')}`;
+  title.textContent = t({
+    update: 'whatsNew.title',
+    history: 'whatsNew.historyTitle',
+    firmware: 'whatsNew.firmwareTitle',
+  }[mode]);
+  intro.textContent = introText();
+  // The changelogs are written in English only.
+  if (entries.length > 0 && language() !== 'en') intro.textContent += ` ${t('whatsNew.englishOnly')}`;
 
   body.replaceChildren(...entries.map(entry => {
     const article = document.createElement('article');
@@ -125,10 +144,38 @@ async function showHistory() {
   body.scrollTop = 0;
 }
 
-document.getElementById('whats-new-open').addEventListener('click', showHistory);
+async function showFirmwareHistory() {
+  const request = ++firmwareRequest;
+  mode = 'firmware';
+  firmwareState = 'loading';
+  entries = [];
+  render();
+  if (!dialog.open) dialog.showModal();
 
-// Escape closes the dialog too, and is as good as the button.
-dialog.addEventListener('close', markSeen);
+  try {
+    const { markdown, latest } = await invoke('firmware_changelog');
+    if (request !== firmwareRequest || mode !== 'firmware') return;
+    firmwareLatest = latest;
+    entries = releasedUpTo(parseChangelog(markdown), latest);
+    firmwareState = 'ready';
+  } catch (error) {
+    if (request !== firmwareRequest || mode !== 'firmware') return;
+    console.warn('Could not fetch the firmware changelog:', error);
+    firmwareState = 'failed';
+  }
+  render();
+  body.scrollTop = 0;
+}
+
+document.getElementById('whats-new-open').addEventListener('click', showHistory);
+document.getElementById('firmware-changelog-open').addEventListener('click', showFirmwareHistory);
+
+// Escape closes the dialog too, and is as good as the button. Only the dialog shown after an
+// update has anything to record.
+dialog.addEventListener('close', () => {
+  firmwareRequest++;
+  if (mode === 'update') markSeen();
+});
 document.getElementById('whats-new-close').addEventListener('click', () => dialog.close());
 
 onLanguageChange(() => {

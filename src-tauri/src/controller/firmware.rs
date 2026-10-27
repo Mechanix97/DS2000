@@ -29,6 +29,11 @@ use tracing::{debug, error, info, warn};
 
 const LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/Mechanix97/DS2000-Firmware/releases/latest";
+/// The firmware's changelog, from `main` rather than a tag: the releases so far were tagged
+/// before the file existed. Entries past the latest published release are left out by the
+/// About tab, so a release pull request merged ahead of publishing does not show early.
+const CHANGELOG_URL: &str =
+    "https://raw.githubusercontent.com/Mechanix97/DS2000-Firmware/main/CHANGELOG.md";
 const CHECKSUMS: &str = "SHA256SUMS";
 /// The firmware repository's signing key (its `minisign.pub`). Only images signed with the matching
 /// secret key are written to the device: the checksums come from the same release as the image, so
@@ -64,6 +69,14 @@ pub struct FirmwareRelease {
 #[serde(rename_all = "camelCase")]
 pub struct FirmwareUpdateInfo {
     pub version: String,
+}
+
+/// The firmware's CHANGELOG.md and its latest published version, for About → Changelog.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FirmwareChangelog {
+    pub markdown: String,
+    pub latest: String,
 }
 
 /// Why checking failed, which decides what the About tab tells the user.
@@ -105,6 +118,53 @@ struct Release {
 struct Asset {
     name: String,
     browser_download_url: String,
+}
+
+/// The firmware's changelog, fetched when asked for: firmware releases come out on their own
+/// schedule, so a copy bundled with the app would go stale. Needs no device.
+#[tauri::command]
+pub async fn firmware_changelog() -> Result<FirmwareChangelog, FirmwareCheckError> {
+    let fetch = async {
+        let (release, markdown) = tokio::try_join!(latest_release(), fetch_changelog())?;
+        let latest = parse_version(&release.tag_name).ok_or_else(|| {
+            warn!("Firmware release tag {} is not a version", release.tag_name);
+            FirmwareCheckError::Unavailable
+        })?;
+        Ok(FirmwareChangelog {
+            markdown,
+            latest: latest.to_string(),
+        })
+    };
+    tokio::time::timeout(CHECK_TIMEOUT, fetch)
+        .await
+        .map_err(|_| {
+            warn!("Timed out fetching the firmware changelog");
+            FirmwareCheckError::Offline
+        })?
+}
+
+async fn fetch_changelog() -> Result<String, FirmwareCheckError> {
+    let response = reqwest::Client::new()
+        .get(CHANGELOG_URL)
+        .header(reqwest::header::USER_AGENT, "DS2000")
+        .send()
+        .await
+        .map_err(|err| {
+            warn!("Could not fetch the firmware changelog: {err}");
+            FirmwareCheckError::Offline
+        })?;
+    response
+        .error_for_status()
+        .map_err(|err| {
+            warn!("Could not fetch the firmware changelog: {err}");
+            FirmwareCheckError::Unavailable
+        })?
+        .text()
+        .await
+        .map_err(|err| {
+            warn!("Could not read the firmware changelog: {err}");
+            FirmwareCheckError::Unavailable
+        })
 }
 
 /// Looks for newer firmware for the attached device. `None` means it is up to date.
