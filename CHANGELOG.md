@@ -16,6 +16,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 
 - The release notes inside the app no longer open with the serial protocol line.
+- **Update** on the app update notice installs the update, showing its progress in About. It
+  used to only open About.
 
 ## [0.5.0] - 2026-10-27
 

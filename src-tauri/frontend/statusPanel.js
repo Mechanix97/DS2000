@@ -36,6 +36,8 @@ let hasCredentials = null;
 let awaitingAuthorization = false;
 // What the automatic update checks found: version strings, or null.
 let appUpdate = null;
+// Starts installing the app update; handed over by updater.js with the version.
+let installAppUpdate = null;
 let firmwareUpdate = null;
 // The Discord account, `{ name, avatarUrl }`, or null before the first connection. Kept while
 // disconnected, so the panel still says whose Discord it is waiting for.
@@ -44,6 +46,14 @@ let discordUser = null;
 const SERIAL_STATES = ['connected', 'disconnected', 'firmwareOutdated', 'appOutdated'];
 
 const toAbout = { label: 'status.update', onClick: () => selectTab('acerca') };
+// The app update installs from the notice itself; About shows its progress.
+const installFromNotice = {
+  label: 'status.update',
+  onClick: () => {
+    selectTab('acerca');
+    installAppUpdate?.();
+  },
+};
 const toDiscord = { label: 'status.setUp', onClick: () => selectTab('discord') };
 
 function discordState() {
@@ -114,7 +124,7 @@ function renderNotices() {
     });
   }
   if (appUpdate) {
-    showNotice('app-update', { kind: 'warning', icon: 'update', title: 'status.appUpdateAvailable', detail: 'status.appUpdateAvailableDetail', values: { version: appUpdate }, action: toAbout });
+    showNotice('app-update', { kind: 'warning', icon: 'update', title: 'status.appUpdateAvailable', detail: 'status.appUpdateAvailableDetail', values: { version: appUpdate }, action: installFromNotice });
   } else {
     hideNotice('app-update');
   }
@@ -147,9 +157,11 @@ function render() {
   renderUser();
 }
 
-/// Told by the app updater which newer version of the app was found, or null.
-export function setAppUpdateAvailable(version) {
+/// Told by the app updater which newer version of the app was found, or null, and how to install
+/// it. Passed in rather than imported, since updater.js already imports this module.
+export function setAppUpdateAvailable(version, install = null) {
   appUpdate = version ?? null;
+  installAppUpdate = appUpdate ? install : null;
   render();
 }
 
