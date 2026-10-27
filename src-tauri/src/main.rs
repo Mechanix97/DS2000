@@ -125,6 +125,7 @@ async fn main() {
         ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(controller.clone())
         .manage(PendingUpdate::default())
         .manage(PendingFirmware::default())
@@ -142,6 +143,8 @@ async fn main() {
             commands::discord_clear_credentials,
             commands::startup_preferences,
             commands::set_startup_preferences,
+            commands::desktop_notifications,
+            commands::set_desktop_notifications,
             commands::ui_language,
             commands::set_ui_language,
             commands::release_notes_unseen,

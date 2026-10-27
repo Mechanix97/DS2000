@@ -154,6 +154,30 @@ pub async fn set_startup_preferences(
     Ok(())
 }
 
+/// Whether desktop notifications are on.
+#[tauri::command]
+pub async fn desktop_notifications(
+    controller: State<'_, Arc<Mutex<Controller>>>,
+) -> Result<bool, String> {
+    Ok(controller.lock().await.config.desktop_notifications().await)
+}
+
+/// Turns desktop notifications on or off.
+#[tauri::command]
+pub async fn set_desktop_notifications(
+    enabled: bool,
+    controller: State<'_, Arc<Mutex<Controller>>>,
+) -> Result<(), String> {
+    controller
+        .lock()
+        .await
+        .config
+        .update_desktop_notifications(enabled)
+        .await;
+    debug!("Desktop notifications: {enabled}");
+    Ok(())
+}
+
 /// Language the UI should render in, resolved by the backend.
 ///
 /// The backend resolves it rather than the webview because it renders the tray menu, which exists

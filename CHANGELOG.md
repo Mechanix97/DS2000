@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Added
 
 - After an update, the app opens with what changed since the version you had.
+- Desktop notifications when the window is closed: the device unplugged, the connection to Discord
+  lost, or Discord waiting for you to authorise DS2000, and another when the device or Discord is
+  back. They can be turned off in Settings.
 
 ## [0.4.1] - 2026-10-23
 

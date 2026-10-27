@@ -109,7 +109,10 @@
     "loadFailed": "No se pudieron leer las preferencias de inicio",
     "languageFailed": "No se pudo cambiar el idioma",
     "startWithWindowsHint": "DS2000 arranca en la bandeja del sistema.",
-    "startMinimizedHint": "Arranca sin abrir la ventana."
+    "startMinimizedHint": "Arranca sin abrir la ventana.",
+    "notificationsSection": "Notificaciones",
+    "desktopNotifications": "Notificaciones de escritorio",
+    "desktopNotificationsHint": "Con la ventana cerrada, te avisa si se desconecta el dispositivo o Discord."
   },
   "about": {
     "heading": "Acerca",
@@ -196,6 +199,36 @@
       "removed": "Eliminado",
       "fixed": "Corregido",
       "security": "Seguridad"
+    }
+  },
+  "notifications": {
+    "deviceDisconnected": {
+      "title": "DS2000 desconectado",
+      "body": "Revisá el cable USB."
+    },
+    "deviceConnected": {
+      "title": "DS2000 conectado",
+      "body": "Todo listo."
+    },
+    "deviceFirmwareOutdated": {
+      "title": "Actualizá el firmware",
+      "body": "Desde DS2000 → Acerca."
+    },
+    "deviceAppOutdated": {
+      "title": "Actualizá DS2000",
+      "body": "Desde DS2000 → Acerca."
+    },
+    "discordDisconnected": {
+      "title": "Sin conexión con Discord",
+      "body": "Reintentando…"
+    },
+    "discordConnected": {
+      "title": "Conectado a Discord",
+      "body": "Todo listo."
+    },
+    "discordAwaiting": {
+      "title": "Autorizá DS2000 en Discord",
+      "body": "Discord te está pidiendo permiso."
     }
   }
 }

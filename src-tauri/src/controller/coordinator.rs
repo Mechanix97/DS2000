@@ -10,6 +10,7 @@
 //! the loop body.
 
 use crate::controller::Controller;
+use crate::notifications::{DesktopNotifier, NoticeTracker, SystemNotifier};
 
 use discord::discord_state::{DiscordVoiceSettings, DiscordWorkerEvent};
 use discord::ipc::DiscordUser;
@@ -21,7 +22,8 @@ use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, mpsc};
-use tracing::{debug, warn};
+use tokio::time::Instant;
+use tracing::{debug, info, warn};
 
 const DISCORD_CONNECTION_STATUS_EVENT: &str = "DISCORD_CONNECTION_STATUS_EVENT";
 const DISCORD_VOICE_SETTINGS_EVENT: &str = "DISCORD_VOICE_SETTINGS_EVENT";
@@ -157,15 +159,20 @@ pub struct Coordinator {
     /// Held here rather than read back from Discord each time, because a button press has to
     /// toggle from the last known value even while the connection is down.
     voice_settings: DiscordVoiceSettings,
+    /// What is worth a desktop notification, shown while the window is not on screen.
+    notices: NoticeTracker,
+    notifier: Box<dyn DesktopNotifier>,
 }
 
 impl Coordinator {
     pub fn new(app: AppHandle, controller: Arc<Mutex<Controller>>) -> Self {
         Self {
+            notifier: Box::new(SystemNotifier(app.clone())),
             app,
             controller,
             ui: UiState::default(),
             voice_settings: DiscordVoiceSettings::default(),
+            notices: NoticeTracker::default(),
         }
     }
 
@@ -190,6 +197,7 @@ impl Coordinator {
         self.refresh_ui();
 
         loop {
+            let next_notice = self.notices.next_due();
             tokio::select! {
                 event = discord_events.recv() => match event {
                     Some(event) => self.on_discord_event(event).await,
@@ -203,6 +211,8 @@ impl Coordinator {
                     Some(()) => self.refresh_ui(),
                     None => break,
                 },
+                () = tokio::time::sleep_until(next_notice.unwrap_or_else(Instant::now)),
+                    if next_notice.is_some() => self.show_due_notices().await,
             }
         }
 
@@ -221,6 +231,7 @@ impl Coordinator {
                 // Emitted even while the window is hidden would be pointless, but this is the one
                 // case where the user has to be told to go and look at Discord.
                 debug!("Waiting for the user to accept Discord's authorisation modal");
+                self.notices.on_awaiting_authorization(Instant::now());
                 if let Err(err) = self.app.emit(DISCORD_AWAITING_AUTHORIZATION_EVENT, ()) {
                     debug!("Could not emit the authorisation notice: {err}");
                 }
@@ -238,11 +249,14 @@ impl Coordinator {
             DiscordWorkerEvent::RunningChanged { running } => {
                 debug!("Discord running: {running}");
                 self.ui.discord_running = Some(running);
+                self.notices.on_discord_running(running);
                 self.emit(DISCORD_RUNNING_EVENT, running);
             }
             DiscordWorkerEvent::ConnectionChanged { connected } => {
                 debug!("Discord connection changed: connected={connected}");
                 self.ui.discord_connected = connected;
+                self.notices
+                    .on_discord_connection(connected, Instant::now());
                 self.emit(DISCORD_CONNECTION_STATUS_EVENT, connected);
 
                 if connected {
@@ -265,6 +279,8 @@ impl Coordinator {
             SerialWorkerEvent::StatusChanged(status) => {
                 debug!("Serial device status changed: {status:?}");
                 self.ui.serial_status = status.into();
+                self.notices
+                    .on_device(self.ui.serial_status.state, Instant::now());
                 self.emit(
                     SERIAL_CONNECTION_STATUS_EVENT,
                     self.ui.serial_status.clone(),
@@ -408,6 +424,50 @@ impl Coordinator {
         if let Err(err) = self.app.emit(event, payload) {
             debug!("Could not emit {event}: {err}");
         }
+    }
+
+    /// Shows the notifications that are due, unless the window is on screen, where the sidebar
+    /// already says the same, or the user turned them off.
+    async fn show_due_notices(&mut self) {
+        let due = self.notices.take_due(Instant::now());
+        if due.is_empty() {
+            return;
+        }
+        if self.window_is_on_screen() {
+            debug!("Not notifying {due:?}: the window is on screen");
+            return;
+        }
+        let (enabled, language) = {
+            let controller = self.controller.lock().await;
+            (
+                controller.config.desktop_notifications().await,
+                controller.config.language().await,
+            )
+        };
+        if !enabled {
+            debug!("Not notifying {due:?}: desktop notifications are off");
+            return;
+        }
+        for notice in due {
+            let (title, body) = notice.text(language);
+            match self.notifier.show(title, body) {
+                Ok(()) => {
+                    info!("Desktop notification: {notice:?}");
+                    self.notices.shown(notice);
+                }
+                Err(err) => warn!("Could not show the {notice:?} notification: {err}"),
+            }
+        }
+    }
+
+    /// Visible and not minimised. A minimised window counts as visible to `emit`, which keeps it
+    /// up to date, but nobody is looking at it.
+    fn window_is_on_screen(&self) -> bool {
+        self.app
+            .get_webview_window(MAIN_WINDOW)
+            .is_some_and(|window| {
+                window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+            })
     }
 
     fn window_is_visible(&self) -> bool {

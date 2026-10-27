@@ -1,8 +1,9 @@
 //! UI language: which one is in effect, and the strings the backend itself has to render.
 //!
-//! Almost all user-facing text lives in the frontend. The tray menu does not — it is built before
-//! any window exists when the app starts minimised — so the labels for it are read here, from the
-//! very same translation files the frontend bundles. One file per language, two consumers.
+//! Almost all user-facing text lives in the frontend. The tray menu and the desktop notifications
+//! do not — both exist before any window does when the app starts minimised — so their text is
+//! read here, from the very same translation files the frontend bundles. One file per language,
+//! two consumers.
 
 use serde::Deserialize;
 use std::sync::LazyLock;
@@ -38,7 +39,7 @@ impl Language {
         }
     }
 
-    fn strings(self) -> &'static TrayStrings {
+    fn strings(self) -> &'static Strings {
         match self {
             Language::English => &TRANSLATIONS.en,
             Language::Spanish => &TRANSLATIONS.es,
@@ -46,11 +47,16 @@ impl Language {
     }
 
     pub fn tray_show(self) -> &'static str {
-        &self.strings().show
+        &self.strings().tray.show
     }
 
     pub fn tray_quit(self) -> &'static str {
-        &self.strings().quit
+        &self.strings().tray.quit
+    }
+
+    /// Text for the desktop notifications.
+    pub fn notifications(self) -> &'static NotificationStrings {
+        &self.strings().notifications
     }
 }
 
@@ -82,14 +88,35 @@ struct TrayStrings {
     quit: String,
 }
 
+/// A desktop notification's title and body.
 #[derive(Deserialize)]
-struct TranslationFile {
+pub struct NotificationText {
+    pub title: String,
+    pub body: String,
+}
+
+/// The `notifications` section of a translation file.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationStrings {
+    pub device_disconnected: NotificationText,
+    pub device_connected: NotificationText,
+    pub device_firmware_outdated: NotificationText,
+    pub device_app_outdated: NotificationText,
+    pub discord_disconnected: NotificationText,
+    pub discord_connected: NotificationText,
+    pub discord_awaiting: NotificationText,
+}
+
+#[derive(Deserialize)]
+struct Strings {
     tray: TrayStrings,
+    notifications: NotificationStrings,
 }
 
 struct Catalogs {
-    en: TrayStrings,
-    es: TrayStrings,
+    en: Strings,
+    es: Strings,
 }
 
 // Embedded from the frontend's translation files so that the tray and the window cannot drift
@@ -106,10 +133,9 @@ static TRANSLATIONS: LazyLock<Catalogs> = LazyLock::new(|| Catalogs {
 ///
 /// The files are compiled into the binary, so a failure here is a build that should never have
 /// shipped rather than anything a user can cause. A test parses both to catch it before then.
-fn parse(json: &str, tag: &str) -> TrayStrings {
-    let file: TranslationFile = serde_json::from_str(json)
-        .unwrap_or_else(|err| panic!("translations/{tag}.json is not valid: {err}"));
-    file.tray
+fn parse(json: &str, tag: &str) -> Strings {
+    serde_json::from_str(json)
+        .unwrap_or_else(|err| panic!("translations/{tag}.json is not valid: {err}"))
 }
 
 #[cfg(test)]
