@@ -76,6 +76,12 @@ export function compareVersions(a, b) {
   return 0;
 }
 
+/// Every released entry up to and including `running`, newest first: the whole history this
+/// version knows about.
+export function releasedUpTo(entries, running) {
+  return entries.filter(entry => compareVersions(entry.version, running) <= 0);
+}
+
 /// The entries the user has not seen: newer than `since`, up to and including `running`. With no
 /// `since` (the previous version did not record it) only the running version's entry.
 export function unseenEntries(entries, since, running) {

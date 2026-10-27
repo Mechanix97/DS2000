@@ -133,7 +133,8 @@
     "releaseNotes": "Ver novedades",
     "installFailed": "No se pudo descargar la actualización. Inténtalo más tarde.",
     "appSection": "Aplicación",
-    "socials": "Seguí a Mechardo Labs"
+    "socials": "Seguí a Mechardo Labs",
+    "changelog": "Historial de cambios"
   },
   "logs": {
     "section": "Solución de problemas",
@@ -199,7 +200,9 @@
       "removed": "Eliminado",
       "fixed": "Corregido",
       "security": "Seguridad"
-    }
+    },
+    "historyTitle": "Historial de cambios",
+    "historyIntro": "Tenés DS2000 {version}."
   },
   "notifications": {
     "deviceDisconnected": {

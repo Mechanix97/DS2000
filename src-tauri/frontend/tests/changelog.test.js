@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { compareVersions, parseChangelog, parseInline, unseenEntries } from '../changelog.js'
+import { compareVersions, parseChangelog, parseInline, releasedUpTo, unseenEntries } from '../changelog.js'
 
 const SAMPLE = `# Changelog
 
@@ -77,6 +77,10 @@ describe('changelog', () => {
     expect(versions('0.4.0', '0.4.1')).toEqual(['0.4.1']);
     expect(versions(null, '0.5.0')).toEqual(['0.5.0']);
     expect(versions('0.5.0', '0.4.1')).toEqual([]);
+  });
+
+  it('lists the whole history up to the running version for the About tab', () => {
+    expect(releasedUpTo(entries, '0.4.1').map(entry => entry.version)).toEqual(['0.4.1', '0.4.0']);
   });
 
   it('reads the real CHANGELOG.md: every release has notes', () => {
