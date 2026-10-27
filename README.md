@@ -83,7 +83,8 @@ Tabs:
 - **RGB**: mode (rainbow, fixed, breathing), brightness, speed, and the colour of each LED.
   Changes reach the device immediately and are remembered.
 - **Discord**: the credentials above.
-- **Settings**: start with Windows, start minimised, language, and the connection status.
+- **Settings**: start with Windows, start minimised, desktop notifications, language, and the
+  connection status.
 - **About**: app and firmware versions, app and firmware updates, and links.
 
 The tray icon opens the window on a left click; its menu has **Open DS2000** and **Quit**. Closing

@@ -41,7 +41,7 @@ pub enum ConfigError {
 }
 
 /// Settings persisted to disk. Nothing in here is sensitive.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(default)]
 pub struct Settings {
     /// Client id of the Discord application registered by the user.
@@ -64,6 +64,25 @@ pub struct Settings {
     /// Version whose release notes the user last saw, so the first start after an update can show
     /// what changed. `None` in a config written before the app recorded it.
     pub release_notes_seen: Option<String>,
+
+    /// Desktop notifications when the device or Discord drops while the window is not shown.
+    pub desktop_notifications: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            discord_client_id: None,
+            last_used_port: None,
+            rgb_config: RGBConfig::default(),
+            language: None,
+            start_with_windows: false,
+            start_minimized: false,
+            release_notes_seen: None,
+            // On unless turned off: they only speak up when something stopped working.
+            desktop_notifications: true,
+        }
+    }
 }
 
 /// Release notes the user has not seen: every version after `since`, up to the running one.
@@ -256,6 +275,18 @@ impl Config {
         }
     }
 
+    pub async fn desktop_notifications(&self) -> bool {
+        self.inner.lock().await.desktop_notifications
+    }
+
+    pub async fn update_desktop_notifications(&mut self, enabled: bool) {
+        let mut settings = self.inner.lock().await;
+        if settings.desktop_notifications != enabled {
+            settings.desktop_notifications = enabled;
+            self.dirty.store(true, atomic::Ordering::Relaxed);
+        }
+    }
+
     pub async fn update_language(&mut self, language: Option<String>) {
         let mut settings = self.inner.lock().await;
         if settings.language != language {
@@ -361,6 +392,7 @@ mod tests {
         assert!(settings.discord_client_id.is_none());
         assert!(!settings.start_with_windows);
         assert!(!settings.start_minimized);
+        assert!(settings.desktop_notifications);
     }
 
     #[test]
@@ -389,6 +421,8 @@ mod tests {
         assert_eq!(parsed.language.as_deref(), Some("en"));
         assert_eq!(parsed.rgb_config, RGBConfig::default());
         assert!(parsed.discord_client_id.is_none());
+        // A config from before notifications existed gets them on.
+        assert!(parsed.desktop_notifications);
     }
 
     #[test]

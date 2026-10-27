@@ -14,6 +14,7 @@ tauri.workspace = true
 tauri-plugin-shell.workspace = true
 tauri-plugin-autostart.workspace = true
 tauri-plugin-updater.workspace = true
+tauri-plugin-notification.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 serde.workspace = true

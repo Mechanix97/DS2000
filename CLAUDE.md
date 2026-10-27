@@ -64,6 +64,8 @@ src-tauri/src/
 │   │                            # to the frontend
 │   ├── commands.rs              # Tauri commands
 │   ├── tray.rs                  # Tray menu (rebuilt when the language changes)
+│   ├── notifications.rs         # Desktop notifications: what is worth one (NoticeTracker), and
+│   │                            # the DesktopNotifier trait with the plugin-backed SystemNotifier
 │   ├── updater.rs               # In-app updates: check latest.json, download, install
 │   ├── firmware.rs              # Device firmware updates: latest DS2000-Firmware release, UF2 to
 │   │                            # the USB boot drive
@@ -102,7 +104,8 @@ src-tauri/frontend/
 `controller_start`,
 `ds_set_voice_settings_command`, `rgb_config`, `serial_set_rgb`, `discord_credentials_status`,
 `discord_set_credentials`, `discord_clear_credentials`, `startup_preferences`,
-`set_startup_preferences`, `ui_language`, `set_ui_language`, `release_notes_unseen`,
+`set_startup_preferences`, `desktop_notifications`, `set_desktop_notifications`, `ui_language`,
+`set_ui_language`, `release_notes_unseen`,
 `release_notes_seen`; `update_check` and `update_install`
 in `controller/updater.rs`; `firmware_check` and `firmware_install` in `controller/firmware.rs`.
 
@@ -128,11 +131,23 @@ Tray **Quit** → `quit()` in `main.rs` spawns `Controller::shutdown()` (abort t
 the config, shut down both workers), then sends on `ShutdownSignal`. A task in `setup` waits for it
 and calls `app_handle.exit(0)`. Closing the window only hides it.
 
+### Desktop notifications
+
+With start minimised there is no webview, so the status notices in the sidebar cannot reach anyone.
+The coordinator feeds device and Discord changes to `NoticeTracker` (`controller/notifications.rs`),
+which only reports a change from working to broken: the device unplugged or Discord's connection
+lost (while Discord still runs) for 10 s, a protocol mismatch, Discord's authorisation modal. When
+one is due and the window is not on screen (hidden or minimised), it goes out through
+`DesktopNotifier`; `SystemNotifier` is `tauri-plugin-notification` (Windows toasts, macOS
+Notification Center, freedesktop D-Bus on Linux). Text comes from the `notifications` section of
+the translation files, read by `config/language.rs` like the tray labels. `notify-rust` is held at
+4.17 in `Cargo.lock`: 4.18 needs Rust 1.89.
+
 ### Configuration and secrets
 
 - `%APPDATA%\Mechardo\config.json`: Discord client id, last used port, RGB config, language, start
-  with Windows, start minimised, the version whose release notes were last seen. Unknown and
-  missing fields fall back to defaults.
+  with Windows, start minimised, the version whose release notes were last seen, desktop
+  notifications (on by default). Unknown and missing fields fall back to defaults.
 - Keyring, service `DS2000`: `discord_client_secret`, `discord_access_token`,
   `discord_refresh_token`.
 - Redirect URI the user registers in Discord: `http://localhost/` (`DISCORD_REDIRECT_URI`).

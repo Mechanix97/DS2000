@@ -3,6 +3,7 @@ import { t, ready, language, setLanguage } from './i18n.js'
 
 const startWithWindows = document.getElementById('start-with-windows');
 const startMinimized = document.getElementById('start-minimized');
+const desktopNotifications = document.getElementById('desktop-notifications');
 const languageSelector = document.getElementById('language-selector');
 const feedback = document.getElementById('startup-feedback');
 
@@ -46,6 +47,15 @@ async function load() {
 startWithWindows.addEventListener('change', save);
 startMinimized.addEventListener('change', save);
 
+desktopNotifications.addEventListener('change', async () => {
+  try {
+    await invoke('set_desktop_notifications', { enabled: desktopNotifications.checked });
+  } catch (error) {
+    desktopNotifications.checked = !desktopNotifications.checked;
+    console.error('set_desktop_notifications failed:', error);
+  }
+});
+
 languageSelector.addEventListener('change', async event => {
   try {
     await setLanguage(event.target.value);
@@ -57,7 +67,15 @@ languageSelector.addEventListener('change', async event => {
   }
 });
 
+async function loadNotifications() {
+  try {
+    desktopNotifications.checked = await invoke('desktop_notifications');
+  } catch (error) {
+    console.error('desktop_notifications failed:', error);
+  }
+}
+
 ready.then(() => {
   languageSelector.value = language();
-  return load();
+  return Promise.all([load(), loadNotifications()]);
 });
