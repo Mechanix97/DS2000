@@ -202,7 +202,11 @@
       "security": "Security"
     },
     "historyTitle": "Changelog",
-    "historyIntro": "You're on DS2000 {version}."
+    "historyIntro": "You're on DS2000 {version}.",
+    "firmwareTitle": "Firmware changelog",
+    "firmwareIntro": "Latest firmware: {version}.",
+    "firmwareLoading": "Loading…",
+    "firmwareFailed": "Could not load the firmware changelog. Check your connection and try again."
   },
   "notifications": {
     "deviceDisconnected": {

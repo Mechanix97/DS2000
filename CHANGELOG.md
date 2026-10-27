@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- **About → Device firmware → Changelog** shows what changed in each firmware release.
+
 ### Changed
 
 - The release notes inside the app no longer open with the serial protocol line.

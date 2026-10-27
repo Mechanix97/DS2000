@@ -202,7 +202,11 @@
       "security": "Seguridad"
     },
     "historyTitle": "Historial de cambios",
-    "historyIntro": "Tenés DS2000 {version}."
+    "historyIntro": "Tenés DS2000 {version}.",
+    "firmwareTitle": "Historial del firmware",
+    "firmwareIntro": "Último firmware: {version}.",
+    "firmwareLoading": "Cargando…",
+    "firmwareFailed": "No se pudo cargar el historial del firmware. Revisá la conexión y probá de nuevo."
   },
   "notifications": {
     "deviceDisconnected": {

@@ -152,6 +152,7 @@ async fn main() {
             updater::update_check,
             updater::update_install,
             firmware::firmware_check,
+            firmware::firmware_changelog,
             firmware::firmware_install,
         ])
         .on_window_event(|window, event| {
