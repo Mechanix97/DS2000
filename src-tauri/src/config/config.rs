@@ -60,12 +60,26 @@ pub struct Settings {
 
     pub start_with_windows: bool,
     pub start_minimized: bool,
+
+    /// Version whose release notes the user last saw, so the first start after an update can show
+    /// what changed. `None` in a config written before the app recorded it.
+    pub release_notes_seen: Option<String>,
+}
+
+/// Release notes the user has not seen: every version after `since`, up to the running one.
+/// `since` is `None` when the previous version did not record which notes were seen.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct UnseenReleaseNotes {
+    pub since: Option<String>,
 }
 
 pub struct Config {
     inner: Arc<Mutex<Settings>>,
     dirty: Arc<AtomicBool>,
     join_handle: Option<JoinHandle<()>>,
+    /// Whether a config file was there at start. Without one this is a new install, which has
+    /// nothing to catch up on.
+    found_on_disk: bool,
 }
 
 impl Default for Config {
@@ -80,6 +94,7 @@ impl Config {
             inner: Arc::new(Mutex::new(Settings::default())),
             dirty: Arc::new(AtomicBool::new(false)),
             join_handle: None,
+            found_on_disk: false,
         }
     }
 
@@ -101,6 +116,7 @@ impl Config {
             info!("No configuration file yet, starting with defaults");
             return;
         }
+        self.found_on_disk = true;
 
         match read_settings(&path) {
             Ok(settings) => {
@@ -249,6 +265,51 @@ impl Config {
     }
 }
 
+impl Config {
+    /// The release notes to show at start, if the user has not seen the running version's.
+    ///
+    /// A new install records the running version as seen: its notes describe changes from a
+    /// version the user never had.
+    pub async fn unseen_release_notes(&mut self, running: &str) -> Option<UnseenReleaseNotes> {
+        let mut settings = self.inner.lock().await;
+        let unseen = unseen_release_notes(
+            settings.release_notes_seen.as_deref(),
+            running,
+            self.found_on_disk,
+        );
+        if unseen.is_none() && settings.release_notes_seen.as_deref() != Some(running) {
+            settings.release_notes_seen = Some(running.to_owned());
+            self.dirty.store(true, atomic::Ordering::Relaxed);
+        }
+        unseen
+    }
+
+    /// Records that the user has seen the release notes up to `running`.
+    pub async fn mark_release_notes_seen(&mut self, running: &str) {
+        let mut settings = self.inner.lock().await;
+        if settings.release_notes_seen.as_deref() != Some(running) {
+            settings.release_notes_seen = Some(running.to_owned());
+            self.dirty.store(true, atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+fn unseen_release_notes(
+    seen: Option<&str>,
+    running: &str,
+    found_on_disk: bool,
+) -> Option<UnseenReleaseNotes> {
+    match seen {
+        Some(seen) if seen == running => None,
+        Some(seen) => Some(UnseenReleaseNotes {
+            since: Some(seen.to_owned()),
+        }),
+        // A config from before the app recorded this: an update, from an unknown version.
+        None if found_on_disk => Some(UnseenReleaseNotes { since: None }),
+        None => None,
+    }
+}
+
 impl Drop for Config {
     fn drop(&mut self) {
         if let Some(handle) = self.join_handle.take() {
@@ -328,6 +389,27 @@ mod tests {
         assert_eq!(parsed.language.as_deref(), Some("en"));
         assert_eq!(parsed.rgb_config, RGBConfig::default());
         assert!(parsed.discord_client_id.is_none());
+    }
+
+    #[test]
+    fn release_notes_are_unseen_after_an_update_only() {
+        let since = |version: &str| {
+            Some(UnseenReleaseNotes {
+                since: Some(version.to_owned()),
+            })
+        };
+        assert_eq!(unseen_release_notes(Some("0.5.0"), "0.5.0", true), None);
+        assert_eq!(
+            unseen_release_notes(Some("0.4.1"), "0.5.0", true),
+            since("0.4.1")
+        );
+        // Updated from a version that did not record the notes it showed.
+        assert_eq!(
+            unseen_release_notes(None, "0.5.0", true),
+            Some(UnseenReleaseNotes { since: None })
+        );
+        // A new install.
+        assert_eq!(unseen_release_notes(None, "0.5.0", false), None);
     }
 
     #[test]

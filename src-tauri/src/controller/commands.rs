@@ -2,7 +2,7 @@ use crate::controller::Controller;
 use crate::coordinator::UiRefreshHandle;
 use crate::tray::{TRAY_ID, tray_menu};
 use common::rgb_update::{LedRgb, RGBConfig, RGBMode};
-use config::config::log_dir;
+use config::config::{UnseenReleaseNotes, log_dir};
 use config::language::Language;
 
 use serde::{Deserialize, Serialize};
@@ -224,6 +224,41 @@ fn relabel_tray(app: &AppHandle, language: Language) -> Result<(), String> {
 #[tauri::command]
 pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+/// Release notes to show at start, when this version's have not been seen yet (after an update).
+///
+/// Only the version range comes from here: the notes themselves are `CHANGELOG.md`, bundled
+/// into the frontend at build time.
+#[tauri::command]
+pub async fn release_notes_unseen(
+    app: AppHandle,
+    controller: State<'_, Arc<Mutex<Controller>>>,
+) -> Result<Option<UnseenReleaseNotes>, String> {
+    let running = app.package_info().version.to_string();
+    Ok(controller
+        .lock()
+        .await
+        .config
+        .unseen_release_notes(&running)
+        .await)
+}
+
+/// Records that the release notes were shown, once the user closes them. Not on showing them: a
+/// window that starts minimised would mark them seen before anyone looked.
+#[tauri::command]
+pub async fn release_notes_seen(
+    app: AppHandle,
+    controller: State<'_, Arc<Mutex<Controller>>>,
+) -> Result<(), String> {
+    let running = app.package_info().version.to_string();
+    controller
+        .lock()
+        .await
+        .config
+        .mark_release_notes_seen(&running)
+        .await;
+    Ok(())
 }
 
 /// Opens the folder with the log files in Explorer, for attaching them to a bug report.

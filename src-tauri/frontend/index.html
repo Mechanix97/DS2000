@@ -17,6 +17,7 @@
     <script type="module" src="updater.js"></script>
     <script type="module" src="firmwareUpdater.js"></script>
     <script type="module" src="logsFolder.js"></script>
+    <script type="module" src="whatsNew.js"></script>
 </head>
 
 <body>
@@ -440,6 +441,17 @@
             </section>
         </main>
     </div>
+
+    <!-- "What's new" after an update: the CHANGELOG.md entries since the previous version; filled
+         by whatsNew.js. -->
+    <dialog class="whats-new" id="whats-new" aria-labelledby="whats-new-title">
+        <h2 class="whats-new-title" id="whats-new-title">What's new</h2>
+        <p class="whats-new-intro" id="whats-new-intro"></p>
+        <div class="whats-new-body" id="whats-new-body"></div>
+        <div class="whats-new-actions">
+            <button class="primary-button" id="whats-new-close" type="button" data-i18n="whatsNew.close">Got it</button>
+        </div>
+    </dialog>
 </body>
 
 </html>

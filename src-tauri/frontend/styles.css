@@ -1655,3 +1655,98 @@ input[type="range"]::-webkit-slider-thumb {
         transition: none !important;
     }
 }
+
+/* ===========================================================================
+   What's new (after an update)
+   =========================================================================== */
+
+.whats-new {
+    width: min(480px, calc(100vw - 2 * var(--space-6)));
+    max-height: calc(100vh - 2 * var(--space-6));
+    padding: var(--space-5) var(--space-6);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-main);
+    color: var(--text);
+    font-size: 13px;
+    box-shadow: var(--shadow-popover);
+}
+
+.whats-new[open] {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.whats-new::backdrop {
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.whats-new-title {
+    margin: 0;
+    font-size: var(--text-lg);
+    color: var(--text-strong);
+}
+
+.whats-new-intro {
+    margin: 0;
+    color: var(--text-muted);
+}
+
+.whats-new-body {
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    user-select: text;
+}
+
+.whats-new-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+}
+
+.whats-new-version {
+    margin: 0;
+    font-size: var(--text-md);
+    color: var(--text-strong);
+}
+
+.whats-new-entry h4 {
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-xs);
+}
+
+.whats-new-entry p,
+.whats-new-entry ul {
+    margin: 0;
+    line-height: 1.4;
+}
+
+.whats-new-entry ul {
+    padding-left: var(--space-5);
+}
+
+.whats-new-entry li + li {
+    margin-top: 2px;
+}
+
+.whats-new-entry strong {
+    color: var(--text-strong);
+}
+
+.whats-new-entry code {
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+}
+
+.whats-new-actions {
+    display: flex;
+    justify-content: flex-end;
+}

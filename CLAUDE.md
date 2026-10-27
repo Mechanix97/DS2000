@@ -86,11 +86,12 @@ src-tauri/frontend/
 ├── updater.js                   # About tab: app updates, also checked daily on their own
 ├── firmwareUpdater.js           # About tab: firmware updates, also checked when the device connects
 ├── logsFolder.js                # About tab: open the logs folder
+├── whatsNew.js, changelog.js    # "What's new" dialog after an update, from the bundled CHANGELOG.md
 ├── links.js                     # Project site URLs, in the app's language (/{lang}/...)
 ├── serverButtonEvents.js        # Site and social links in About
 ├── i18n.js                      # Bundled translations; the language is persisted by the backend
 ├── translations/{en,es}.json    # en is the fallback and must be complete
-└── tests/                       # Vitest: colours, links, translation parity (`npm test`)
+└── tests/                       # Vitest: colours, links, changelog, translation parity (`npm test`)
 ```
 
 ## Architecture
@@ -101,7 +102,8 @@ src-tauri/frontend/
 `controller_start`,
 `ds_set_voice_settings_command`, `rgb_config`, `serial_set_rgb`, `discord_credentials_status`,
 `discord_set_credentials`, `discord_clear_credentials`, `startup_preferences`,
-`set_startup_preferences`, `ui_language`, `set_ui_language`; `update_check` and `update_install`
+`set_startup_preferences`, `ui_language`, `set_ui_language`, `release_notes_unseen`,
+`release_notes_seen`; `update_check` and `update_install`
 in `controller/updater.rs`; `firmware_check` and `firmware_install` in `controller/firmware.rs`.
 
 **Events** (emitted by `coordinator.rs`): `DISCORD_CONNECTION_STATUS_EVENT`,
@@ -129,7 +131,8 @@ and calls `app_handle.exit(0)`. Closing the window only hides it.
 ### Configuration and secrets
 
 - `%APPDATA%\Mechardo\config.json`: Discord client id, last used port, RGB config, language, start
-  with Windows, start minimised. Unknown and missing fields fall back to defaults.
+  with Windows, start minimised, the version whose release notes were last seen. Unknown and
+  missing fields fall back to defaults.
 - Keyring, service `DS2000`: `discord_client_secret`, `discord_access_token`,
   `discord_refresh_token`.
 - Redirect URI the user registers in Discord: `http://localhost/` (`DISCORD_REDIRECT_URI`).
@@ -180,7 +183,11 @@ release. The app offers an update only once the release is published. Publishing
 `CHANGELOG.md` (Keep a Changelog) is written for users, not developers. A PR with a change users
 notice adds a line under **Unreleased**; the release PR bumps the version and moves **Unreleased**
 under `## [x.y.z] - date`, with its compare link at the bottom. `release.yml` puts that entry at
-the top of the notes as "What's new" and fails on a tag that has none.
+the top of the notes as "What's new" and fails on a tag that has none. The frontend bundles the
+file too: on the first start after an update, `whatsNew.js` shows the entries since the version the
+user had (`release_notes_unseen`), and closing the dialog records them as seen. So the entry is
+also what users read inside the app; keep it in the Markdown `changelog.js` understands (`###`
+sections, `-` lists, **bold**, `code`, https links).
 
 ### Updates
 

@@ -144,6 +144,8 @@ async fn main() {
             commands::set_startup_preferences,
             commands::ui_language,
             commands::set_ui_language,
+            commands::release_notes_unseen,
+            commands::release_notes_seen,
             updater::update_check,
             updater::update_install,
             firmware::firmware_check,
