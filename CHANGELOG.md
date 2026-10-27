@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- The release notes inside the app no longer open with the serial protocol line.
+
 ## [0.5.0] - 2026-10-27
 
 Serial protocol 1: pairs with DS2000-Firmware 0.2.1.
