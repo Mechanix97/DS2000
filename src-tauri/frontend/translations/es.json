@@ -184,7 +184,7 @@
     "discordConnectedTitle": "Conectado a Discord",
     "discordConnectedAs": "Como {name}",
     "appUpdateAvailable": "DS2000 {version} disponible",
-    "appUpdateAvailableDetail": "Instalala desde Acerca",
+    "appUpdateAvailableDetail": "La app se reinicia para instalarla",
     "discordClosed": "Discord cerrado",
     "discordClosedDetail": "Abrilo: DS2000 se conecta solo"
   },
