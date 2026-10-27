@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-27
+
+Serial protocol 1: pairs with DS2000-Firmware 0.2.1.
+
 ### Added
 
 - After an update, the app opens with what changed since the version you had. **About →
@@ -80,7 +84,8 @@ First public release. Serial protocol 1: pairs with DS2000-Firmware 0.2.0.
 - A Windows installer on every release, with its SHA-256.
 - **About → Check for updates** installs newer releases.
 
-[Unreleased]: https://github.com/Mechanix97/DS2000/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Mechanix97/DS2000/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Mechanix97/DS2000/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Mechanix97/DS2000/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Mechanix97/DS2000/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Mechanix97/DS2000/compare/v0.2.0...v0.3.0
