@@ -44,7 +44,6 @@ describe('changelog', () => {
 
   it('keeps paragraphs, section headings and wrapped list items', () => {
     expect(entries[0].blocks).toEqual([
-      { type: 'paragraph', text: 'Serial protocol 1.' },
       { type: 'heading', text: 'Added' },
       { type: 'list', items: ['A **new** thing that wraps onto a second line.', 'Another one.'] },
     ]);
@@ -52,6 +51,15 @@ describe('changelog', () => {
 
   it('stops at the link definitions', () => {
     expect(entries.at(-1).blocks).toEqual([{ type: 'list', items: ['Old.'] }]);
+  });
+
+  it('leaves out the serial protocol sentence, and only that', () => {
+    const paragraphs = markdown => parseChangelog(`## [1.0.0] - 2026-01-01\n\n${markdown}\n`)[0].blocks;
+    expect(paragraphs('Serial protocol 1: pairs with DS2000-Firmware 0.2.1.')).toEqual([]);
+    expect(paragraphs('Serial protocol 1.')).toEqual([]);
+    expect(paragraphs('First release. Serial protocol 1: pairs with DS2000 app 0.2.0.'))
+      .toEqual([{ type: 'paragraph', text: 'First release.' }]);
+    expect(paragraphs('Works with version 0.2.1.')).toEqual([{ type: 'paragraph', text: 'Works with version 0.2.1.' }]);
   });
 
   it('splits bold, code and https links out of a line, and nothing else', () => {

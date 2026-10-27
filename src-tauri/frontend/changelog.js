@@ -4,9 +4,13 @@
 
 const VERSION_HEADING = /^## \[(\d+\.\d+\.\d+)\](?: - (\S+))?/;
 const INLINE = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g;
+// "Serial protocol 1: pairs with DS2000-Firmware 0.2.1." opens each entry. It is for the release
+// notes; inside the app it is jargon, and the app checks compatibility itself. The sentence ends at
+// the first period followed by a space or the end, so the dots in version numbers stay in it.
+const COMPATIBILITY = /Serial protocol \d+(?::.*?)?\.(?=\s|$)/g;
 
-/// `[{ version, date, blocks }]`, newest first as in the file. `[Unreleased]` and the link
-/// definitions at the bottom are left out. A block is `{ type: 'heading' | 'paragraph', text }`
+/// `[{ version, date, blocks }]`, newest first as in the file. `[Unreleased]`, the link
+/// definitions at the bottom and the serial protocol sentence are left out. A block is `{ type: 'heading' | 'paragraph', text }`
 /// or `{ type: 'list', items }`.
 export function parseChangelog(markdown) {
   const entries = [];
@@ -42,6 +46,13 @@ export function parseChangelog(markdown) {
       block = { type: 'paragraph', text: line.trim() };
       entry.blocks.push(block);
     }
+  }
+  for (const entry of entries) {
+    entry.blocks = entry.blocks.flatMap(block => {
+      if (block.type !== 'paragraph') return [block];
+      const text = block.text.replace(COMPATIBILITY, '').replace(/\s+/g, ' ').trim();
+      return text ? [{ ...block, text }] : [];
+    });
   }
   return entries;
 }
