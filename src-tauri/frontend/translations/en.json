@@ -183,5 +183,19 @@
     "appUpdateAvailableDetail": "Install it from About",
     "discordClosed": "Discord closed",
     "discordClosedDetail": "Open it: DS2000 connects on its own"
+  },
+  "whatsNew": {
+    "title": "What's new",
+    "intro": "DS2000 was updated to {version}.",
+    "englishOnly": "The notes are in English.",
+    "close": "Got it",
+    "sections": {
+      "added": "Added",
+      "changed": "Changed",
+      "deprecated": "Deprecated",
+      "removed": "Removed",
+      "fixed": "Fixed",
+      "security": "Security"
+    }
   }
 }

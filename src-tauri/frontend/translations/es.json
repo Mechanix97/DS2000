@@ -183,5 +183,19 @@
     "appUpdateAvailableDetail": "Instalala desde Acerca",
     "discordClosed": "Discord cerrado",
     "discordClosedDetail": "Abrilo: DS2000 se conecta solo"
+  },
+  "whatsNew": {
+    "title": "Novedades",
+    "intro": "DS2000 se actualizó a la versión {version}.",
+    "englishOnly": "Las notas están en inglés.",
+    "close": "Entendido",
+    "sections": {
+      "added": "Nuevo",
+      "changed": "Cambios",
+      "deprecated": "Obsoleto",
+      "removed": "Eliminado",
+      "fixed": "Corregido",
+      "security": "Seguridad"
+    }
   }
 }
