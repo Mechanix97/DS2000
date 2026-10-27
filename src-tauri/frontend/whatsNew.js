@@ -1,14 +1,15 @@
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-shell'
 import { t, ready, language, onLanguageChange } from './i18n.js'
-import { parseChangelog, parseInline, unseenEntries } from './changelog.js'
+import { parseChangelog, parseInline, releasedUpTo, unseenEntries } from './changelog.js'
 
 // Bundled at build time, so the notes are the ones this version shipped with and need no
 // network. The release workflow refuses a tag whose version has no entry in it.
 import changelog from '../../CHANGELOG.md?raw'
 
 // "What's new": on the first start after an update, the CHANGELOG.md entries since the version
-// the user had. The backend says which versions (commands.rs, `release_notes_unseen`).
+// the user had. The backend says which versions (commands.rs, `release_notes_unseen`). The same
+// dialog shows the whole history from About → Changelog.
 
 const dialog = document.getElementById('whats-new');
 const title = document.getElementById('whats-new-title');
@@ -20,6 +21,8 @@ const SECTIONS = ['added', 'changed', 'deprecated', 'removed', 'fixed', 'securit
 
 let entries = [];
 let running = null;
+// 'update' after an update, 'history' from the About tab: only the heading and intro differ.
+let mode = 'update';
 
 function inline(text) {
   return parseInline(text).map(run => {
@@ -42,8 +45,9 @@ function sectionName(text) {
 
 // Rendered from the entries rather than kept, so a language change redraws the headings.
 function render() {
-  title.textContent = t('whatsNew.title');
-  intro.textContent = t('whatsNew.intro', { version: running });
+  const history = mode === 'history';
+  title.textContent = t(history ? 'whatsNew.historyTitle' : 'whatsNew.title');
+  intro.textContent = t(history ? 'whatsNew.historyIntro' : 'whatsNew.intro', { version: running });
   // The changelog is written in English only.
   if (language() !== 'en') intro.textContent += ` ${t('whatsNew.englishOnly')}`;
 
@@ -96,6 +100,7 @@ async function showUnseen() {
   }
   if (!unseen) return;
 
+  mode = 'update';
   entries = unseenEntries(parseChangelog(changelog), unseen.since, running);
   if (entries.length === 0) {
     // A downgrade, or a build whose changelog lacks its own entry: nothing to show.
@@ -105,6 +110,22 @@ async function showUnseen() {
   render();
   dialog.showModal();
 }
+
+async function showHistory() {
+  try {
+    running ??= await invoke('app_version');
+  } catch (error) {
+    console.warn('Could not read the app version:', error);
+    return;
+  }
+  mode = 'history';
+  entries = releasedUpTo(parseChangelog(changelog), running);
+  render();
+  if (!dialog.open) dialog.showModal();
+  body.scrollTop = 0;
+}
+
+document.getElementById('whats-new-open').addEventListener('click', showHistory);
 
 // Escape closes the dialog too, and is as good as the button.
 dialog.addEventListener('close', markSeen);

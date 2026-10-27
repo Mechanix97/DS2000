@@ -133,7 +133,8 @@
     "releaseNotes": "What's new",
     "installFailed": "The update could not be downloaded. Try again later.",
     "appSection": "Application",
-    "socials": "Follow Mechardo Labs"
+    "socials": "Follow Mechardo Labs",
+    "changelog": "Changelog"
   },
   "logs": {
     "section": "Troubleshooting",
@@ -199,7 +200,9 @@
       "removed": "Removed",
       "fixed": "Fixed",
       "security": "Security"
-    }
+    },
+    "historyTitle": "Changelog",
+    "historyIntro": "You're on DS2000 {version}."
   },
   "notifications": {
     "deviceDisconnected": {

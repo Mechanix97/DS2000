@@ -88,7 +88,8 @@ src-tauri/frontend/
 ├── updater.js                   # About tab: app updates, also checked daily on their own
 ├── firmwareUpdater.js           # About tab: firmware updates, also checked when the device connects
 ├── logsFolder.js                # About tab: open the logs folder
-├── whatsNew.js, changelog.js    # "What's new" dialog after an update, from the bundled CHANGELOG.md
+├── whatsNew.js, changelog.js    # "What's new" dialog after an update, and the full history from
+│                                # About → Changelog, both from the bundled CHANGELOG.md
 ├── links.js                     # Project site URLs, in the app's language (/{lang}/...)
 ├── serverButtonEvents.js        # Site and social links in About
 ├── i18n.js                      # Bundled translations; the language is persisted by the backend
