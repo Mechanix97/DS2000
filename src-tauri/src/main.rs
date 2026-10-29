@@ -282,6 +282,12 @@ fn show_window(app: &AppHandle) {
 fn sync_autostart(app: &AppHandle, wanted: bool) {
     use tauri_plugin_autostart::ManagerExt;
 
+    // The configuration is shared with the installed copy, whose entry this would overwrite.
+    if cfg!(debug_assertions) {
+        debug!("{}", commands::AUTOSTART_IN_DEBUG);
+        return;
+    }
+
     let manager = app.autolaunch();
     match manager.is_enabled() {
         Ok(current) if current == wanted => {}

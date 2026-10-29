@@ -97,6 +97,13 @@ pub async fn discord_clear_credentials(
         .map_err(|err| err.to_string())
 }
 
+/// Why a development build leaves start with Windows alone. The plugin registers the running
+/// executable, so the entry would point at `target\debug` and open a console window at every login;
+/// and the entry has the same name as the installed copy's, so turning it off would unregister
+/// that one.
+pub const AUTOSTART_IN_DEBUG: &str =
+    "Start with Windows cannot be changed from a development build";
+
 /// How the application behaves when the machine starts.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -124,6 +131,8 @@ pub async fn startup_preferences(
 /// Registering with the OS can fail on its own — a locked registry, a policy — so it is applied
 /// first and the preference is only stored once it took, keeping the checkbox honest about what
 /// will actually happen.
+///
+/// A development build refuses to change it: see [`AUTOSTART_IN_DEBUG`].
 #[tauri::command]
 pub async fn set_startup_preferences(
     preferences: StartupPreferences,
@@ -132,16 +141,30 @@ pub async fn set_startup_preferences(
 ) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
 
-    let manager = app.autolaunch();
-    let applied = if preferences.start_with_windows {
-        manager.enable()
+    if cfg!(debug_assertions) {
+        let stored = controller
+            .lock()
+            .await
+            .config
+            .settings()
+            .await
+            .start_with_windows;
+        if preferences.start_with_windows != stored {
+            warn!("{AUTOSTART_IN_DEBUG}");
+            return Err(AUTOSTART_IN_DEBUG.to_owned());
+        }
     } else {
-        manager.disable()
-    };
-    applied.map_err(|err| {
-        warn!("Could not change the start with Windows setting: {err}");
-        "Could not register the application to start with Windows".to_owned()
-    })?;
+        let manager = app.autolaunch();
+        let applied = if preferences.start_with_windows {
+            manager.enable()
+        } else {
+            manager.disable()
+        };
+        applied.map_err(|err| {
+            warn!("Could not change the start with Windows setting: {err}");
+            "Could not register the application to start with Windows".to_owned()
+        })?;
+    }
 
     controller
         .lock()
