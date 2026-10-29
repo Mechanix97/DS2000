@@ -9,6 +9,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- With **Start minimised** on, opening the app yourself now shows its window. Only the start
+  with Windows goes straight to the tray.
+
 ## [0.5.1] - 2026-10-27
 
 Serial protocol 1: pairs with DS2000-Firmware 0.2.1.

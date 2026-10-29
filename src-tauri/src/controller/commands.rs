@@ -109,8 +109,9 @@ pub const AUTOSTART_IN_DEBUG: &str =
 #[serde(rename_all = "camelCase")]
 pub struct StartupPreferences {
     pub start_with_windows: bool,
-    /// Start into the tray without building a window. The webview, and the memory and CPU that
-    /// come with it, are only paid for once the user opens it.
+    /// When started by Windows at login, start into the tray without building a window. The
+    /// webview, and the memory and CPU that come with it, are only paid for once the user opens
+    /// it. Opening the app by hand always shows the window.
     pub start_minimized: bool,
 }
 

@@ -28,6 +28,10 @@ const MAIN_WINDOW: &str = "main";
 const WINDOW_WIDTH: f64 = 940.0;
 const WINDOW_HEIGHT: f64 = 660.0;
 
+/// Argument the launch-at-login entry passes, so that a start by Windows can be told apart from
+/// the user opening the app: only the former honours `start_minimized`.
+const AUTOSTART_ARG: &str = "--autostart";
+
 /// Name of the log files in `%APPDATA%\Mechardo\logs`: `ds2000.log` and `ds2000.1.log`.
 const LOG_FILE_NAME: &str = "ds2000";
 
@@ -106,6 +110,7 @@ async fn main() {
     let startup = controller.lock().await.config.settings().await;
     let (start_minimized, start_with_windows) =
         (startup.start_minimized, startup.start_with_windows);
+    let started_at_login = std::env::args().any(|arg| arg == AUTOSTART_ARG);
     let language = controller.lock().await.config.language().await;
 
     let app = tauri::Builder::default()
@@ -118,10 +123,9 @@ async fn main() {
         }))
         .plugin(tauri_plugin_autostart::init(
             // Irrelevant on Windows, the only supported platform today, but the argument is not
-            // optional. No launch arguments: starting minimised is a preference that is read from
-            // the configuration on every start, however the process was launched.
+            // optional.
             MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![AUTOSTART_ARG]),
         ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -197,7 +201,8 @@ async fn main() {
             // so it wins and the entry is brought back in line.
             sync_autostart(app.handle(), start_with_windows);
 
-            if start_minimized {
+            // Opening the app by hand always shows it: start minimised is about logging in.
+            if start_minimized && started_at_login {
                 info!("Starting minimised to the tray, no webview created");
             } else if let Err(err) = create_window(app.handle()) {
                 // Without a window the app is still usable from the tray, so this is not fatal.
@@ -289,22 +294,25 @@ fn sync_autostart(app: &AppHandle, wanted: bool) {
     }
 
     let manager = app.autolaunch();
-    match manager.is_enabled() {
-        Ok(current) if current == wanted => {}
-        Ok(_) => {
-            let result = if wanted {
-                manager.enable()
-            } else {
-                manager.disable()
-            };
-            match result {
-                Ok(()) => info!("Start with Windows set to {wanted}"),
-                // Not fatal: the preference simply does not take effect, and the user can retry
-                // from the UI. Refusing to start over a registry write would be worse.
-                Err(err) => warn!("Could not set start with Windows to {wanted}: {err}"),
+    let result = if wanted {
+        // Written on every start, even when an entry exists: entries from before AUTOSTART_ARG
+        // lack it, and would open the window at login, and the install path may have moved.
+        manager.enable()
+    } else {
+        match manager.is_enabled() {
+            Ok(false) => return,
+            Ok(true) => manager.disable(),
+            Err(err) => {
+                warn!("Could not read the start with Windows setting: {err}");
+                return;
             }
         }
-        Err(err) => warn!("Could not read the start with Windows setting: {err}"),
+    };
+    match result {
+        Ok(()) => debug!("Start with Windows entry set to {wanted}"),
+        // Not fatal: the preference simply does not take effect, and the user can retry from the
+        // UI. Refusing to start over a registry write would be worse.
+        Err(err) => warn!("Could not set start with Windows to {wanted}: {err}"),
     }
 }
 
