@@ -818,6 +818,16 @@ input[type="range"]::-webkit-slider-thumb {
     transform: translateX(16px);
 }
 
+.switch:disabled {
+    cursor: default;
+}
+
+/* The whole row fades, not just the switch: the text is what says why it cannot be changed. */
+.setting-row:has(.switch:disabled) {
+    opacity: 0.45;
+    cursor: default;
+}
+
 /* ===========================================================================
    RGB
    =========================================================================== */

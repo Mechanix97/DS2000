@@ -108,8 +108,8 @@
     "saved": "Preferencias guardadas",
     "loadFailed": "No se pudieron leer las preferencias de inicio",
     "languageFailed": "No se pudo cambiar el idioma",
-    "startWithWindowsHint": "DS2000 arranca en la bandeja del sistema.",
-    "startMinimizedHint": "Arranca sin abrir la ventana.",
+    "startWithWindowsHint": "DS2000 se abre al iniciar sesión en Windows.",
+    "startMinimizedHint": "Al iniciar Windows, arranca directo en la bandeja.",
     "notificationsSection": "Notificaciones",
     "desktopNotifications": "Notificaciones de escritorio",
     "desktopNotificationsHint": "Con la ventana cerrada, te avisa si se desconecta el dispositivo o Discord."
