@@ -279,7 +279,8 @@ fn board_environment(board: Board) -> Option<&'static str> {
         Board::Rp2350Zero => Some("rp2350_zero"),
         Board::Pico2 => Some("pico2"),
         Board::Pico => Some("pico"),
-        Board::Ds2000RevA | Board::Unknown(_) => None,
+        Board::Ds2000RevA => Some("rev_a"),
+        Board::Unknown(_) => None,
     }
 }
 
@@ -698,7 +699,8 @@ AK5mtdxZZ41BoQfbvyPkqh4qzz6lTxVmKI9eeMSx9kqFv+w9rRYrSJSOeDuxqnlZtAyfuPudWSih6kLU
         assert_eq!(board_environment(Board::Rp2350Zero), Some("rp2350_zero"));
         assert_eq!(board_environment(Board::Pico2), Some("pico2"));
         assert_eq!(board_environment(Board::Pico), Some("pico"));
-        assert_eq!(board_environment(Board::Ds2000RevA), None);
+        assert_eq!(board_environment(Board::Ds2000RevA), Some("rev_a"));
+        assert_eq!(board_environment(Board::Unknown(0x42)), None);
     }
 
     // firmwareUpdater.js switches on these strings.
