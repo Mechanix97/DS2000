@@ -108,7 +108,7 @@
     "saved": "Preferencias guardadas",
     "loadFailed": "No se pudieron leer las preferencias de inicio",
     "languageFailed": "No se pudo cambiar el idioma",
-    "startWithWindowsHint": "DS2000 arranca en la bandeja del sistema.",
+    "startWithWindowsHint": "DS2000 se abre al iniciar sesión en Windows.",
     "startMinimizedHint": "Al iniciar Windows, arranca directo en la bandeja.",
     "notificationsSection": "Notificaciones",
     "desktopNotifications": "Notificaciones de escritorio",

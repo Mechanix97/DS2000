@@ -12,7 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - With **Start minimised** on, opening the app yourself now shows its window. Only the start
-  with Windows goes straight to the tray.
+  with Windows goes straight to the tray, so the option can only be changed while **Start with
+  Windows** is on.
 
 ## [0.5.1] - 2026-10-27
 

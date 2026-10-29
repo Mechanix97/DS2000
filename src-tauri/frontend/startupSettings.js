@@ -15,6 +15,12 @@ function showFeedback(message, kind) {
   }
 }
 
+// Start minimised only applies when Windows starts the app, so it is only editable while that is
+// on. Its stored value is kept, so turning start with Windows back on restores it.
+function syncStartMinimized() {
+  startMinimized.disabled = !startWithWindows.checked;
+}
+
 // Registering with Windows can fail on its own, so the checkboxes are only trusted once the
 // backend confirms. On failure they are put back to what is actually stored rather than left
 // showing a setting that never took effect.
@@ -38,13 +44,17 @@ async function load() {
     const preferences = await invoke('startup_preferences');
     startWithWindows.checked = preferences.startWithWindows;
     startMinimized.checked = preferences.startMinimized;
+    syncStartMinimized();
   } catch (error) {
     showFeedback(t('settings.loadFailed'), 'error');
     console.error('startup_preferences failed:', error);
   }
 }
 
-startWithWindows.addEventListener('change', save);
+startWithWindows.addEventListener('change', () => {
+  syncStartMinimized();
+  save();
+});
 startMinimized.addEventListener('change', save);
 
 desktopNotifications.addEventListener('change', async () => {

@@ -108,7 +108,7 @@
     "saved": "Preferences saved",
     "loadFailed": "Could not read the startup preferences",
     "languageFailed": "Could not change the language",
-    "startWithWindowsHint": "DS2000 starts in the system tray.",
+    "startWithWindowsHint": "DS2000 opens when you sign in to Windows.",
     "startMinimizedHint": "When Windows starts, goes straight to the tray.",
     "notificationsSection": "Notifications",
     "desktopNotifications": "Desktop notifications",
