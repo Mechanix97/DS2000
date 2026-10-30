@@ -43,6 +43,8 @@ pub struct DeviceList {
     /// Id of the device Discord uses now.
     pub current: String,
     pub available: Vec<AudioDevice>,
+    /// Id of the device the system uses by default, when Discord says which.
+    pub system_default: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -73,9 +75,15 @@ fn parse_device_list(side: &Value) -> Result<DeviceList, DiscordError> {
         .as_str()
         .ok_or(DiscordError::NoDataFound)?
         .to_owned();
-    let available = side["available_devices"]
+    let listed = side["available_devices"]
         .as_array()
-        .ok_or(DiscordError::NoDataFound)?
+        .ok_or(DiscordError::NoDataFound)?;
+    let default_name = listed
+        .iter()
+        .find(|device| device["id"].as_str() == Some(SYSTEM_DEFAULT_ID))
+        .and_then(|device| device["name"].as_str())
+        .and_then(system_default_name);
+    let available: Vec<AudioDevice> = listed
         .iter()
         // A device without an id cannot be selected, so it is not worth offering. Nor is the
         // system default: it duplicates a real device.
@@ -89,7 +97,23 @@ fn parse_device_list(side: &Value) -> Result<DeviceList, DiscordError> {
             })
         })
         .collect();
-    Ok(DeviceList { current, available })
+    let system_default = default_name.and_then(|name| {
+        available
+            .iter()
+            .find(|device| device.name == name)
+            .map(|device| device.id.clone())
+    });
+    Ok(DeviceList {
+        current,
+        available,
+        system_default,
+    })
+}
+
+/// The device a "Default" entry stands for, read from its name: Discord calls it
+/// `Default (<device name>)`, with the first word in Discord's own language.
+fn system_default_name(name: &str) -> Option<&str> {
+    name.split_once(" (")?.1.strip_suffix(')')
 }
 
 /// The device to switch to: the one after `current` among those the user chose, in the order
@@ -136,6 +160,7 @@ mod tests {
         DeviceList {
             current: current.to_owned(),
             available: available.iter().map(|id| device(id)).collect(),
+            system_default: None,
         }
     }
 
@@ -152,7 +177,7 @@ mod tests {
                 "device_id": "default",
                 "volume": 100,
                 "available_devices": [
-                    { "id": "default", "name": "Default" },
+                    { "id": "default", "name": "Default (Desk mic)" },
                     { "id": "{mic}", "name": "Desk mic" },
                 ],
             },
@@ -168,6 +193,7 @@ mod tests {
         assert_eq!(devices.input.current, "default");
         // The system default is left out: it is the same hardware as another entry.
         assert_eq!(devices.input.available.len(), 1);
+        assert_eq!(devices.input.system_default.as_deref(), Some("{mic}"));
         assert_eq!(
             devices.input.available[0],
             AudioDevice {
@@ -177,6 +203,20 @@ mod tests {
         );
         assert_eq!(devices.of(DeviceKind::Output).current, "{hp}");
         assert_eq!(devices.output.available.len(), 1);
+    }
+
+    #[test]
+    fn the_system_default_is_read_from_the_default_entrys_name() {
+        assert_eq!(
+            system_default_name("Default (Microphone (4- Logitech G933 Gaming Wireless Headset))"),
+            Some("Microphone (4- Logitech G933 Gaming Wireless Headset)")
+        );
+        // Discord in another language names the entry in it.
+        assert_eq!(
+            system_default_name("Predeterminado (Altavoces)"),
+            Some("Altavoces")
+        );
+        assert_eq!(system_default_name("Default"), None);
     }
 
     #[test]

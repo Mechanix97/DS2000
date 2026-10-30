@@ -205,12 +205,15 @@ pub async fn set_desktop_notifications(
 
 /// One side of the audio devices section in Settings.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceChoices {
     /// What Discord offers now. Empty while it is not connected.
     pub available: Vec<AudioDevice>,
     /// What Shift + the key switches between, in order, unplugged or not. Empty means all of
     /// `available`.
     pub chosen: Vec<ChosenDevice>,
+    /// Id of the system's default device, marked in the list.
+    pub system_default: Option<String>,
 }
 
 /// What the audio devices section in Settings shows.
@@ -251,10 +254,12 @@ pub async fn voice_device_choices(
         input: DeviceChoices {
             available: devices.input.available,
             chosen: cycle.input,
+            system_default: devices.input.system_default,
         },
         output: DeviceChoices {
             available: devices.output.available,
             chosen: cycle.output,
+            system_default: devices.output.system_default,
         },
     })
 }

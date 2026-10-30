@@ -121,7 +121,8 @@
     "devicesNone": "Discord lists no devices.",
     "devicesUnplugged": "not connected",
     "devicesUnsupported": "This session does not let DS2000 see whether Shift is held (Wayland), so the shortcut is not available.",
-    "devicesSaveFailed": "Could not save the devices"
+    "devicesSaveFailed": "Could not save the devices",
+    "devicesSystemDefault": "Windows default"
   },
   "about": {
     "heading": "About",

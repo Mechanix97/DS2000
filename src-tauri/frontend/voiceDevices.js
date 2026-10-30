@@ -30,6 +30,12 @@ function renderList(kind) {
     name.className = 'setting-name';
     name.textContent = row.name || row.id;
     text.append(name);
+    if (row.id === choices[kind].systemDefault) {
+      const tag = document.createElement('span');
+      tag.className = 'device-default';
+      tag.textContent = t('settings.devicesSystemDefault');
+      text.append(tag);
+    }
     if (row.unplugged) {
       const hint = document.createElement('span');
       hint.className = 'setting-hint';

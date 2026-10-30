@@ -121,7 +121,8 @@
     "devicesNone": "Discord no muestra dispositivos.",
     "devicesUnplugged": "no conectado",
     "devicesUnsupported": "Esta sesión no deja que DS2000 vea si Shift está presionado (Wayland), así que el atajo no está disponible.",
-    "devicesSaveFailed": "No se pudieron guardar los dispositivos"
+    "devicesSaveFailed": "No se pudieron guardar los dispositivos",
+    "devicesSystemDefault": "Predeterminado de Windows"
   },
   "about": {
     "heading": "Acerca",
