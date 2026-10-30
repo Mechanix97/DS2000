@@ -112,7 +112,16 @@
     "startMinimizedHint": "Al iniciar Windows, arranca directo en la bandeja.",
     "notificationsSection": "Notificaciones",
     "desktopNotifications": "Notificaciones de escritorio",
-    "desktopNotificationsHint": "Con la ventana cerrada, te avisa si se desconecta el dispositivo o Discord."
+    "desktopNotificationsHint": "Con la ventana cerrada, te avisa si se desconecta el dispositivo o Discord.",
+    "devicesSection": "Dispositivos de audio",
+    "devicesHint": "Mantené Shift en el teclado y presioná silenciar para pasar Discord a la siguiente entrada marcada acá, o ensordecer para la siguiente salida. Marcá dos o más de cada una.",
+    "devicesInput": "Entrada",
+    "devicesOutput": "Salida",
+    "devicesOffline": "Conectate a Discord para ver sus dispositivos.",
+    "devicesNone": "Discord no muestra dispositivos.",
+    "devicesUnplugged": "no conectado",
+    "devicesUnsupported": "Esta sesión no deja que DS2000 vea si Shift está presionado (Wayland), así que el atajo no está disponible.",
+    "devicesSaveFailed": "No se pudieron guardar los dispositivos"
   },
   "about": {
     "heading": "Acerca",
@@ -236,6 +245,8 @@
     "discordAwaiting": {
       "title": "Autorizá DS2000 en Discord",
       "body": "Discord te está pidiendo permiso."
-    }
+    },
+    "inputDevice": "Dispositivo de entrada",
+    "outputDevice": "Dispositivo de salida"
   }
 }

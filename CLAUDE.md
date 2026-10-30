@@ -49,6 +49,7 @@ src-tauri/src/
 │   │   ├── discord_state.rs     # Actor: connect, reconnect, voice settings
 │   │   ├── ipc.rs, pipe_message.rs  # Discord IPC pipe and its frames
 │   │   ├── oauth.rs             # Authorisation and token exchange/refresh
+│   │   ├── voice_devices.rs     # Discord's input/output devices; which one Shift + key goes to
 │   │   └── credentials.rs       # Client id / secret / tokens passed in by the controller
 │   └── serial/                  # crate `serial`
 │       ├── serial_worker.rs     # Public handle
@@ -74,7 +75,8 @@ src-tauri/src/
 │   ├── config.rs                # %APPDATA%\Mechardo\config.json
 │   ├── credentials.rs           # Keyring access, redirect URI
 │   └── language.rs
-└── common/                      # crate `common`: RGB types, task guard, rotating log file
+└── common/                      # crate `common`: RGB types, task guard, rotating log file,
+                                 # whether Shift is held (keyboard.rs)
 
 src-tauri/frontend/
 ├── index.html, styles.css       # Every colour is a :root token; Noto Sans bundled in static/fonts
@@ -85,6 +87,7 @@ src-tauri/frontend/
 ├── rgb.js, color.js             # RGB tab: mode, brightness, speed, palette + hex, live preview
 ├── discordSetup.js              # Discord tab: three steps, credentials, connect, unlink
 ├── startupSettings.js           # Settings tab: autostart, start minimised, language
+├── voiceDevices.js, deviceChoices.js  # Settings tab: devices Shift + mute/deafen switch between
 ├── updater.js                   # About tab: app updates, also checked daily on their own
 ├── firmwareUpdater.js           # About tab: firmware updates, also checked when the device connects
 ├── logsFolder.js                # About tab: open the logs folder
@@ -107,7 +110,7 @@ src-tauri/frontend/
 `ds_set_voice_settings_command`, `rgb_config`, `serial_set_rgb`, `discord_credentials_status`,
 `discord_set_credentials`, `discord_clear_credentials`, `startup_preferences`,
 `set_startup_preferences`, `desktop_notifications`, `set_desktop_notifications`, `ui_language`,
-`set_ui_language`, `release_notes_unseen`,
+`set_ui_language`, `voice_device_choices`, `set_voice_device_choices`, `release_notes_unseen`,
 `release_notes_seen`; `update_check` and `update_install`
 in `controller/updater.rs`; `firmware_check`, `firmware_install` and `firmware_changelog` in
 `controller/firmware.rs`.
@@ -146,11 +149,24 @@ Notification Center, freedesktop D-Bus on Linux). Text comes from the `notificat
 the translation files, read by `config/language.rs` like the tray labels. `notify-rust` is held at
 4.17 in `Cargo.lock`: 4.18 needs Rust 1.89.
 
+### Switching audio devices
+
+Shift on the computer's keyboard, held while a device key is pressed, turns mute into "next input
+device" and deafen into "next output device" (#65). The device only reports presses, so the
+modifier cannot be on the device without a protocol change. `common::keyboard::shift_held` reads
+it when the Button arrives: `GetAsyncKeyState` on Windows, `CGEventSourceFlagsState` on macOS,
+`XQueryKeymap` through `x11-dl` on Linux X11; Wayland cannot tell, and Settings says so. The
+coordinator reads Discord's devices (`GET_VOICE_SETTINGS`), picks the next one the user chose
+(`voice_devices::next_device`, skipping unplugged ones), sets it with `SET_VOICE_SETTINGS`
+`{input|output: {device_id}}` and shows a notification naming it, even with the window up. It
+sends the voice state back to the device first, undoing the LED the firmware flipped on its own.
+
 ### Configuration and secrets
 
 - `%APPDATA%\Mechardo\config.json`: Discord client id, last used port, RGB config, language, start
   with Windows, start minimised, the version whose release notes were last seen, desktop
-  notifications (on by default). Unknown and missing fields fall back to defaults.
+  notifications (on by default), the audio devices Shift + mute/deafen switch between (id and
+  name, so an unplugged one can still be shown). Unknown and missing fields fall back to defaults.
 - Keyring, service `DS2000`: `discord_client_secret`, `discord_access_token`,
   `discord_refresh_token`.
 - Redirect URI the user registers in Discord: `http://localhost/` (`DISCORD_REDIRECT_URI`).

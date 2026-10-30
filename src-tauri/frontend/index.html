@@ -14,6 +14,7 @@
     <script type="module" src="serverButtonEvents.js"></script>
     <script type="module" src="discordSetup.js"></script>
     <script type="module" src="startupSettings.js"></script>
+    <script type="module" src="voiceDevices.js"></script>
     <script type="module" src="updater.js"></script>
     <script type="module" src="firmwareUpdater.js"></script>
     <script type="module" src="logsFolder.js"></script>
@@ -367,6 +368,15 @@
                         </span>
                         <input type="checkbox" class="switch" id="desktop-notifications">
                     </label>
+
+                    <h2 class="section-title" data-i18n="settings.devicesSection">Audio devices</h2>
+                    <p class="setting-hint devices-intro" data-i18n="settings.devicesHint">Hold Shift on your keyboard and press mute to switch Discord to the next input ticked here, or deafen for the next output. Tick two or more of each.</p>
+                    <p id="voice-devices-status" class="feedback error" hidden></p>
+                    <h3 class="devices-kind" data-i18n="settings.devicesInput">Input</h3>
+                    <div class="setting-list" id="voice-devices-input"></div>
+                    <h3 class="devices-kind" data-i18n="settings.devicesOutput">Output</h3>
+                    <div class="setting-list" id="voice-devices-output"></div>
+                    <p id="voice-devices-feedback" class="feedback"></p>
 
                     <h2 class="section-title" data-i18n="settings.appSection">Application</h2>
                     <label class="setting-row">

@@ -75,6 +75,11 @@ The Discord tab then reads *Connected to Discord.*, and **Settings → Connectio
 | Mute | Toggles mute |
 | Deafen | Toggles deafen |
 | Disconnect | Leaves the current voice channel |
+| Shift + Mute | Switches Discord to the next input device chosen in Settings |
+| Shift + Deafen | Switches Discord to the next output device chosen in Settings |
+
+Shift is the one on your computer's keyboard. It cannot be read on Linux under Wayland, so the
+two shortcuts are not available there.
 
 The microphone and headphone icons in the app toggle mute and deafen too.
 

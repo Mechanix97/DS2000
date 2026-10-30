@@ -12,8 +12,11 @@
 use crate::controller::Controller;
 use crate::notifications::{DesktopNotifier, NoticeTracker, SystemNotifier};
 
+use common::keyboard;
+
 use discord::discord_state::{DiscordVoiceSettings, DiscordWorkerEvent};
 use discord::ipc::DiscordUser;
+use discord::voice_devices::{DeviceKind, next_device};
 use serial::messages::button::Button;
 use serial::serial_message::{PROTOCOL_VERSION, SerialMessage};
 use serial::serial_state::{DeviceStatus, SerialWorkerEvent};
@@ -301,7 +304,12 @@ impl Coordinator {
         // Lights the key up in the RGB tab, so the device can be tested without Discord.
         self.emit(DEVICE_BUTTON_EVENT, ButtonPayload::from(button));
 
+        // Only asked for the keys it changes: on Linux it opens a connection to the X server.
+        let shift = || keyboard::shift_held() == Some(true);
+
         match button {
+            Button::MuteButton if shift() => self.switch_device(DeviceKind::Input).await,
+            Button::DeafenButton if shift() => self.switch_device(DeviceKind::Output).await,
             Button::MuteButton => {
                 self.voice_settings.mute = !self.voice_settings.mute;
                 self.request_voice_settings().await;
@@ -316,6 +324,70 @@ impl Coordinator {
                     warn!("Could not leave the voice channel: {err}");
                 }
             }
+        }
+    }
+
+    /// Shift + mute or Shift + deafen: switches Discord to the next input or output device the user
+    /// chose in Settings, and says which in a notification.
+    ///
+    /// The notification goes out even with the window on screen: nothing in the window shows the
+    /// device, and the key's LED cannot either.
+    async fn switch_device(&mut self, kind: DeviceKind) {
+        // The firmware flipped the key's LED as soon as it was pressed, but this press was neither a
+        // mute nor a deafen. Sending the state back undoes that.
+        self.push_to_device().await;
+
+        let controller = self.controller.lock().await;
+        let cycle = controller.config.voice_device_cycle().await;
+        let chosen: Vec<String> = match kind {
+            DeviceKind::Input => cycle.input,
+            DeviceKind::Output => cycle.output,
+        }
+        .into_iter()
+        .map(|device| device.id)
+        .collect();
+        if chosen.is_empty() {
+            debug!(
+                "Shift + key: no {} devices chosen to switch between",
+                kind.key()
+            );
+            return;
+        }
+
+        let devices = match controller.discord_worker.voice_devices().await {
+            Ok(devices) => devices,
+            Err(err) => {
+                warn!("Could not read Discord's audio devices: {err}");
+                return;
+            }
+        };
+        let Some(next) = next_device(devices.of(kind), &chosen).cloned() else {
+            info!("No other chosen {} device is available", kind.key());
+            return;
+        };
+        if let Err(err) = controller
+            .discord_worker
+            .set_voice_device(kind, next.id.clone())
+            .await
+        {
+            warn!("Could not switch Discord's {} device: {err}", kind.key());
+            return;
+        }
+        let language = controller.config.language().await;
+        drop(controller);
+
+        info!(
+            "Switched Discord's {} device to {:?}",
+            kind.key(),
+            next.name
+        );
+        let strings = language.notifications();
+        let title = match kind {
+            DeviceKind::Input => &strings.input_device,
+            DeviceKind::Output => &strings.output_device,
+        };
+        if let Err(err) = self.notifier.show(title, &next.name) {
+            warn!("Could not show the device notification: {err}");
         }
     }
 

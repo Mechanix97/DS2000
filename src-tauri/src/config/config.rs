@@ -67,6 +67,28 @@ pub struct Settings {
 
     /// Desktop notifications when the device or Discord drops while the window is not shown.
     pub desktop_notifications: bool,
+
+    /// Discord audio devices that Shift + mute and Shift + deafen switch between.
+    pub voice_device_cycle: VoiceDeviceCycle,
+}
+
+/// A Discord audio device the user chose to switch to.
+///
+/// The name is stored beside the id so the settings can still show a choice whose device is
+/// unplugged, when Discord no longer lists it.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ChosenDevice {
+    pub id: String,
+    pub name: String,
+}
+
+/// The devices each shortcut switches between, in the order it goes through them. Empty means
+/// the shortcut does nothing.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct VoiceDeviceCycle {
+    pub input: Vec<ChosenDevice>,
+    pub output: Vec<ChosenDevice>,
 }
 
 impl Default for Settings {
@@ -81,6 +103,7 @@ impl Default for Settings {
             release_notes_seen: None,
             // On unless turned off: they only speak up when something stopped working.
             desktop_notifications: true,
+            voice_device_cycle: VoiceDeviceCycle::default(),
         }
     }
 }
@@ -287,6 +310,18 @@ impl Config {
         }
     }
 
+    pub async fn voice_device_cycle(&self) -> VoiceDeviceCycle {
+        self.inner.lock().await.voice_device_cycle.clone()
+    }
+
+    pub async fn update_voice_device_cycle(&mut self, cycle: VoiceDeviceCycle) {
+        let mut settings = self.inner.lock().await;
+        if settings.voice_device_cycle != cycle {
+            settings.voice_device_cycle = cycle;
+            self.dirty.store(true, atomic::Ordering::Relaxed);
+        }
+    }
+
     pub async fn update_language(&mut self, language: Option<String>) {
         let mut settings = self.inner.lock().await;
         if settings.language != language {
@@ -402,6 +437,13 @@ mod tests {
             last_used_port: Some("COM3".to_owned()),
             language: Some("es".to_owned()),
             start_with_windows: true,
+            voice_device_cycle: VoiceDeviceCycle {
+                input: vec![ChosenDevice {
+                    id: "{0.0.1.00000000}.{mic}".to_owned(),
+                    name: "Desk mic".to_owned(),
+                }],
+                output: Vec::new(),
+            },
             ..Settings::default()
         };
 
@@ -423,6 +465,7 @@ mod tests {
         assert!(parsed.discord_client_id.is_none());
         // A config from before notifications existed gets them on.
         assert!(parsed.desktop_notifications);
+        assert_eq!(parsed.voice_device_cycle, VoiceDeviceCycle::default());
     }
 
     #[test]

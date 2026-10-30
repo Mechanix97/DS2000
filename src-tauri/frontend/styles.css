@@ -1511,6 +1511,21 @@ input[type="range"]::-webkit-slider-thumb {
     border-bottom: 0;
 }
 
+.devices-intro {
+    margin: 0 0 var(--space-2);
+}
+
+.devices-kind {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-strong);
+}
+
+.setting-list > .setting-hint {
+    margin: var(--space-1) 0;
+}
+
 /* ===========================================================================
    About
    =========================================================================== */

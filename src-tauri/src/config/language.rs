@@ -106,6 +106,10 @@ pub struct NotificationStrings {
     pub discord_disconnected: NotificationText,
     pub discord_connected: NotificationText,
     pub discord_awaiting: NotificationText,
+    /// Title when Shift + mute switched Discord's microphone; the body is the device's name.
+    pub input_device: String,
+    /// Title when Shift + deafen switched Discord's output; the body is the device's name.
+    pub output_device: String,
 }
 
 #[derive(Deserialize)]

@@ -149,6 +149,8 @@ async fn main() {
             commands::set_startup_preferences,
             commands::desktop_notifications,
             commands::set_desktop_notifications,
+            commands::voice_device_choices,
+            commands::set_voice_device_choices,
             commands::ui_language,
             commands::set_ui_language,
             commands::release_notes_unseen,
