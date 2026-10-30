@@ -248,6 +248,7 @@
       "body": "Discord te está pidiendo permiso."
     },
     "inputDevice": "Dispositivo de entrada",
-    "outputDevice": "Dispositivo de salida"
+    "outputDevice": "Dispositivo de salida",
+    "rejoinedChannel": "Volviste al canal de voz"
   }
 }

@@ -4,6 +4,7 @@ use crate::discord_state::{
     DiscordWorkerEvent,
 };
 use crate::error::DiscordError;
+use crate::voice_channel::Rejoin;
 use crate::voice_devices::{DeviceKind, VoiceDevices};
 
 use std::sync::Arc;
@@ -110,6 +111,14 @@ impl DiscordWorker {
         self.discord_handler
             .disconnect_channel()
             .map_err(DiscordError::ActorError)
+    }
+
+    /// Shift + disconnect: rejoins the server channel left in the last few minutes, if any.
+    pub async fn rejoin_voice_channel(&self) -> Result<Rejoin, DiscordError> {
+        self.discord_handler
+            .rejoin_voice_channel()
+            .await
+            .map_err(DiscordError::ActorError)?
     }
 
     pub async fn get_access_token(&mut self) -> Result<Option<String>, DiscordError> {

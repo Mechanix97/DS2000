@@ -50,6 +50,7 @@ src-tauri/src/
 │   │   ├── ipc.rs, pipe_message.rs  # Discord IPC pipe and its frames
 │   │   ├── oauth.rs             # Authorisation and token exchange/refresh
 │   │   ├── voice_devices.rs     # Discord's input/output devices; which one Shift + key goes to
+│   │   ├── voice_channel.rs     # Channel the user is in / left; what Shift + disconnect rejoins
 │   │   └── credentials.rs       # Client id / secret / tokens passed in by the controller
 │   └── serial/                  # crate `serial`
 │       ├── serial_worker.rs     # Public handle
@@ -160,6 +161,13 @@ coordinator reads Discord's devices (`GET_VOICE_SETTINGS`), picks the next one t
 (`voice_devices::next_device`, skipping unplugged ones), sets it with `SET_VOICE_SETTINGS`
 `{input|output: {device_id}}` and shows a notification naming it, even with the window up. It
 sends the voice state back to the device first, undoing the LED the firmware flipped on its own.
+
+Shift + disconnect rejoins the voice channel left in the last 5 minutes (#77). The Discord actor
+subscribes to `VOICE_CHANNEL_SELECT` and seeds from `GET_SELECTED_VOICE_CHANNEL` on connect; a
+failure there only disables this shortcut. `voice_channel::ChannelMemory` keeps the channel the
+user is in and the last server channel they left (never a DM or group call: joining one rings the
+others), in memory only and across reconnections. Rejoining is `SELECT_VOICE_CHANNEL` without
+`force`, and only when the user is in no channel.
 
 ### Configuration and secrets
 

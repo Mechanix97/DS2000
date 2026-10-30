@@ -248,6 +248,7 @@
       "body": "Discord is asking for your permission."
     },
     "inputDevice": "Input device",
-    "outputDevice": "Output device"
+    "outputDevice": "Output device",
+    "rejoinedChannel": "Back in the voice channel"
   }
 }

@@ -16,6 +16,7 @@ use common::keyboard;
 
 use discord::discord_state::{DiscordVoiceSettings, DiscordWorkerEvent};
 use discord::ipc::DiscordUser;
+use discord::voice_channel::Rejoin;
 use discord::voice_devices::{DeviceKind, next_device};
 use serial::messages::button::Button;
 use serial::serial_message::{PROTOCOL_VERSION, SerialMessage};
@@ -310,6 +311,7 @@ impl Coordinator {
         match button {
             Button::MuteButton if shift() => self.switch_device(DeviceKind::Input).await,
             Button::DeafenButton if shift() => self.switch_device(DeviceKind::Output).await,
+            Button::DisconnectButton if shift() => self.rejoin_channel().await,
             Button::MuteButton => {
                 self.voice_settings.mute = !self.voice_settings.mute;
                 self.request_voice_settings().await;
@@ -381,6 +383,38 @@ impl Coordinator {
         };
         if let Err(err) = self.notifier.show(title, &next.name) {
             warn!("Could not show the device notification: {err}");
+        }
+    }
+
+    /// Shift + disconnect: back into the server channel left in the last few minutes, said in a
+    /// notification like a device switch.
+    async fn rejoin_channel(&mut self) {
+        let controller = self.controller.lock().await;
+        let channel = match controller.discord_worker.rejoin_voice_channel().await {
+            Ok(Rejoin::Channel(channel)) => channel,
+            Ok(Rejoin::AlreadyInChannel) => {
+                info!("Shift + disconnect: already in a voice channel, nothing to rejoin");
+                return;
+            }
+            Ok(Rejoin::NothingRecent) => {
+                info!("Shift + disconnect: no voice channel left in the last few minutes");
+                return;
+            }
+            Err(err) => {
+                warn!("Could not rejoin the voice channel: {err}");
+                return;
+            }
+        };
+        let language = controller.config.language().await;
+        drop(controller);
+
+        info!("Rejoined the voice channel {:?}", channel.name);
+        let title = &language.notifications().rejoined_channel;
+        if let Err(err) = self
+            .notifier
+            .show(title, channel.name.as_deref().unwrap_or_default())
+        {
+            warn!("Could not show the rejoin notification: {err}");
         }
     }
 
