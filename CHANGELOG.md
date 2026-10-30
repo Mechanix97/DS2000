@@ -9,16 +9,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-### Added
+## [0.6.0] - 2026-10-30
 
-- **Shift + disconnect** takes you back to the voice channel you left, if it was in the last 5
-  minutes. Server channels only: it never calls anyone back.
+Serial protocol 1: pairs with DS2000-Firmware 0.2.1.
 
 ### Added
 
 - **Shift + mute** switches Discord to your next microphone, and **Shift + deafen** to your next
   headphones or speakers. Every device is included to start; turn off the ones you do not use in
   **Settings → Audio devices**. A notification says which one is now in use.
+- **Shift + disconnect** takes you back to the voice channel you left, if it was in the last 5
+  minutes. Server channels only: it never calls anyone back.
 - Device firmware updates for the DS2000 rev A board, once a firmware release includes its image.
 
 ## [0.5.2] - 2026-10-29
@@ -120,7 +121,8 @@ First public release. Serial protocol 1: pairs with DS2000-Firmware 0.2.0.
 - A Windows installer on every release, with its SHA-256.
 - **About → Check for updates** installs newer releases.
 
-[Unreleased]: https://github.com/Mechanix97/DS2000/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/Mechanix97/DS2000/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Mechanix97/DS2000/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/Mechanix97/DS2000/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Mechanix97/DS2000/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Mechanix97/DS2000/compare/v0.4.1...v0.5.0
