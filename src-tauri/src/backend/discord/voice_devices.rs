@@ -87,13 +87,20 @@ fn parse_device_list(side: &Value) -> Result<DeviceList, DiscordError> {
 /// The device to switch to: the one after `current` among those the user chose, in the order
 /// they were chosen, skipping any Discord does not offer right now (unplugged).
 ///
+/// No choices means every device Discord offers, in its order: that is the default, so a device
+/// plugged in later is included without visiting Settings.
+///
 /// When `current` is not one of them, the first available choice. `None` when there is nothing to
 /// switch to: no choice is available, or the only one is already in use.
 pub fn next_device<'a>(list: &'a DeviceList, chosen: &[String]) -> Option<&'a AudioDevice> {
-    let candidates: Vec<&AudioDevice> = chosen
-        .iter()
-        .filter_map(|id| list.available.iter().find(|device| device.id == *id))
-        .collect();
+    let candidates: Vec<&AudioDevice> = if chosen.is_empty() {
+        list.available.iter().collect()
+    } else {
+        chosen
+            .iter()
+            .filter_map(|id| list.available.iter().find(|device| device.id == *id))
+            .collect()
+    };
 
     let next = match candidates
         .iter()
@@ -217,9 +224,19 @@ mod tests {
     }
 
     #[test]
+    fn no_choices_go_through_every_device_discord_offers() {
+        let devices = list("b", &["a", "b", "c"]);
+        assert_eq!(next_device(&devices, &[]), Some(&device("c")));
+        assert_eq!(
+            next_device(&list("c", &["a", "b", "c"]), &[]),
+            Some(&device("a"))
+        );
+    }
+
+    #[test]
     fn nothing_to_switch_to_is_none() {
-        // No choices.
-        assert_eq!(next_device(&list("a", &["a", "b"]), &[]), None);
+        // Discord offers a single device.
+        assert_eq!(next_device(&list("a", &["a"]), &[]), None);
         // Every choice unplugged.
         assert_eq!(next_device(&list("a", &["a"]), &chosen(&["x", "y"])), None);
         // The only available choice is already in use.

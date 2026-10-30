@@ -208,7 +208,8 @@ pub async fn set_desktop_notifications(
 pub struct DeviceChoices {
     /// What Discord offers now. Empty while it is not connected.
     pub available: Vec<AudioDevice>,
-    /// What Shift + the key switches between, in order, unplugged or not.
+    /// What Shift + the key switches between, in order, unplugged or not. Empty means all of
+    /// `available`.
     pub chosen: Vec<ChosenDevice>,
 }
 

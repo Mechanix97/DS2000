@@ -346,13 +346,6 @@ impl Coordinator {
         .into_iter()
         .map(|device| device.id)
         .collect();
-        if chosen.is_empty() {
-            debug!(
-                "Shift + key: no {} devices chosen to switch between",
-                kind.key()
-            );
-            return;
-        }
 
         let devices = match controller.discord_worker.voice_devices().await {
             Ok(devices) => devices,

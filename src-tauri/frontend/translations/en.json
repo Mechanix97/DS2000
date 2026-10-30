@@ -114,7 +114,7 @@
     "desktopNotifications": "Desktop notifications",
     "desktopNotificationsHint": "When the window is closed, tells you if the device or Discord disconnects.",
     "devicesSection": "Audio devices",
-    "devicesHint": "Hold Shift on your keyboard and press mute to switch Discord to the next input ticked here, or deafen for the next output. Tick two or more of each.",
+    "devicesHint": "Hold Shift on your keyboard and press mute to switch Discord to the next input ticked here, or deafen for the next output. All are on to start; at least one of each stays on.",
     "devicesInput": "Input",
     "devicesOutput": "Output",
     "devicesOffline": "Connect to Discord to see its devices.",

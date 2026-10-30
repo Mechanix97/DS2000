@@ -166,7 +166,8 @@ sends the voice state back to the device first, undoing the LED the firmware fli
 - `%APPDATA%\Mechardo\config.json`: Discord client id, last used port, RGB config, language, start
   with Windows, start minimised, the version whose release notes were last seen, desktop
   notifications (on by default), the audio devices Shift + mute/deafen switch between (id and
-  name, so an unplugged one can still be shown). Unknown and missing fields fall back to defaults.
+  name, so an unplugged one can still be shown; empty means all of Discord's, and Settings keeps
+  at least one ticked). Unknown and missing fields fall back to defaults.
 - Keyring, service `DS2000`: `discord_client_secret`, `discord_access_token`,
   `discord_refresh_token`.
 - Redirect URI the user registers in Discord: `http://localhost/` (`DISCORD_REDIRECT_URI`).

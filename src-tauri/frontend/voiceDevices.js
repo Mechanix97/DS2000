@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { t, ready, onLanguageChange } from './i18n.js'
-import { chosenDevices, deviceRows } from './deviceChoices.js'
+import { chosenDevices, deviceRows, isLastChecked } from './deviceChoices.js'
 
 // Settings → Audio devices: which of Discord's inputs and outputs Shift + mute and Shift + deafen
 // switch between.
@@ -41,6 +41,7 @@ function renderList(kind) {
     toggle.type = 'checkbox';
     toggle.className = 'switch';
     toggle.checked = row.checked;
+    toggle.disabled = isLastChecked(rows, row);
     toggle.addEventListener('change', () => {
       row.checked = toggle.checked;
       save(kind, rows);

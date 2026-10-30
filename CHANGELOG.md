@@ -12,8 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Added
 
 - **Shift + mute** switches Discord to your next microphone, and **Shift + deafen** to your next
-  headphones or speakers. Choose the devices to switch between in **Settings → Audio devices**; a
-  notification says which one is now in use.
+  headphones or speakers. Every device is included to start; turn off the ones you do not use in
+  **Settings → Audio devices**. A notification says which one is now in use.
 
 ## [0.5.2] - 2026-10-29
 

@@ -82,8 +82,8 @@ pub struct ChosenDevice {
     pub name: String,
 }
 
-/// The devices each shortcut switches between, in the order it goes through them. Empty means
-/// the shortcut does nothing.
+/// The devices each shortcut switches between, in the order it goes through them. Empty, the
+/// default, means every device Discord offers; Settings never stores an explicit empty choice.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct VoiceDeviceCycle {
