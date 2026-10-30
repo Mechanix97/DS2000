@@ -8,6 +8,7 @@ use crate::credentials::{DISCORD_SCOPES, DiscordCredentials};
 use crate::error::DiscordError;
 use crate::ipc::{DiscordConnectionState, DiscordUser, IpcClient, IpcEvent};
 use crate::oauth;
+use crate::voice_devices::{DeviceKind, VoiceDevices};
 use spawned_concurrency::message::Message;
 use spawned_concurrency::tasks::{Actor, ActorRef, ActorStart, Context, Handler, send_after};
 use spawned_concurrency::{ActorError, Response, actor, protocol};
@@ -24,7 +25,7 @@ const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
 use discord_state_protocol::{
     AccessToken, Connect, DisconnectChannel, DiscordStatus, RefreshToken, SetCredentials,
-    SetVoiceSetting, Shutdown, VoiceSettings,
+    SetVoiceDevice, SetVoiceSetting, Shutdown, VoiceDevices as GetVoiceDevices, VoiceSettings,
 };
 
 pub type DiscordStateHandler = ActorRef<DiscordState>;
@@ -42,6 +43,13 @@ pub trait DiscordStateProtocol: Send + Sync {
     fn access_token(&self) -> Response<Option<String>>;
     fn refresh_token(&self) -> Response<Option<String>>;
     fn voice_settings(&self) -> Response<DiscordVoiceSettings>;
+    /// Discord's audio devices, read from Discord on each call.
+    fn voice_devices(&self) -> Response<Result<VoiceDevices, DiscordError>>;
+    fn set_voice_device(
+        &self,
+        kind: DeviceKind,
+        device_id: String,
+    ) -> Response<Result<(), DiscordError>>;
     fn shutdown(&self) -> Response<()>;
 }
 
@@ -560,6 +568,29 @@ impl DiscordState {
         _ctx: &Context<Self>,
     ) -> DiscordVoiceSettings {
         *self.voice_settings.lock().await
+    }
+
+    #[request_handler]
+    async fn handle_voice_devices(
+        &mut self,
+        _msg: GetVoiceDevices,
+        _ctx: &Context<Self>,
+    ) -> Result<VoiceDevices, DiscordError> {
+        self.ipc_client.get_voice_devices().await
+    }
+
+    /// A refusal here is Discord rejecting the device, not the connection failing, so unlike
+    /// [`Self::handle_set_voice_setting`] it does not reconnect. A pipe that did fail is reported by
+    /// the reader task anyway.
+    #[request_handler]
+    async fn handle_set_voice_device(
+        &mut self,
+        msg: SetVoiceDevice,
+        _ctx: &Context<Self>,
+    ) -> Result<(), DiscordError> {
+        self.ipc_client
+            .set_voice_device(msg.kind, &msg.device_id)
+            .await
     }
 
     #[request_handler]

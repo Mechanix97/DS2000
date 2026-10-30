@@ -4,6 +4,7 @@ use crate::discord_state::{
     DiscordWorkerEvent,
 };
 use crate::error::DiscordError;
+use crate::voice_devices::{DeviceKind, VoiceDevices};
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,6 +76,26 @@ impl DiscordWorker {
         self.discord_handler
             .set_voice_setting(mute, deafen)
             .map_err(DiscordError::ActorError)
+    }
+
+    /// The audio devices Discord offers and the ones in use. Fails while not connected.
+    pub async fn voice_devices(&self) -> Result<VoiceDevices, DiscordError> {
+        self.discord_handler
+            .voice_devices()
+            .await
+            .map_err(DiscordError::ActorError)?
+    }
+
+    /// Switches Discord's microphone or output.
+    pub async fn set_voice_device(
+        &self,
+        kind: DeviceKind,
+        device_id: String,
+    ) -> Result<(), DiscordError> {
+        self.discord_handler
+            .set_voice_device(kind, device_id)
+            .await
+            .map_err(DiscordError::ActorError)?
     }
 
     /// Whether an authenticated RPC session is open.
@@ -272,6 +293,52 @@ mod tests {
             .expect("voice settings accepted");
         sleep(Duration::from_secs(1)).await;
         assert!(!worker.get_voice_settings().await.mute);
+
+        worker.shutdown().await.expect("shuts down");
+    }
+
+    /// Checks that Discord takes `input.device_id` / `output.device_id` in `SET_VOICE_SETTINGS`, by
+    /// switching each side to another device it lists and back.
+    ///
+    /// Audible: for a moment Discord uses another microphone and another output.
+    #[tokio::test]
+    #[ignore = "switches Discord's audio devices for a moment; run with --ignored"]
+    async fn discord_switches_audio_devices_on_request() {
+        use crate::voice_devices::DeviceKind;
+
+        init_logging();
+        let (observer, _observed) = mpsc::unbounded_channel();
+        let mut worker = DiscordWorker::new(Some(credentials_from_env_file()), observer).await;
+        worker.start().await.expect("start is accepted");
+        wait_until_connected(&worker).await;
+        cache_tokens(&mut worker).await;
+
+        for kind in [DeviceKind::Input, DeviceKind::Output] {
+            let before = worker.voice_devices().await.expect("devices readable");
+            let list = before.of(kind);
+            let Some(other) = list
+                .available
+                .iter()
+                .find(|device| device.id != list.current)
+            else {
+                tracing::warn!("Only one {} device, nothing to switch to", kind.key());
+                continue;
+            };
+
+            worker
+                .set_voice_device(kind, other.id.clone())
+                .await
+                .expect("Discord accepts the device");
+            let after = worker.voice_devices().await.expect("devices readable");
+            assert_eq!(after.of(kind).current, other.id, "{} switched", kind.key());
+
+            worker
+                .set_voice_device(kind, list.current.clone())
+                .await
+                .expect("Discord accepts the original device back");
+            let restored = worker.voice_devices().await.expect("devices readable");
+            assert_eq!(restored.of(kind).current, list.current);
+        }
 
         worker.shutdown().await.expect("shuts down");
     }

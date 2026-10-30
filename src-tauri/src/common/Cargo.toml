@@ -7,5 +7,8 @@ edition = "2024"
 serde.workspace = true
 tokio.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl.workspace = true
+
 [lib]
 path = "./mod.rs"

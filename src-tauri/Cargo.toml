@@ -82,6 +82,11 @@ minisign-verify = "0.2"
 # and the alternative is a different platform API per target.
 sys-locale = "0.3"
 
+# Reads whether Shift is held on Linux X11 (`common::keyboard`). It loads libX11 at run time
+# instead of linking it, so the app still starts where there is no X server. Already in the tree
+# through Tauri's windowing on Linux.
+x11-dl = "2.21"
+
 # Only the Windows backend is enabled: Windows is the supported platform, and the other backends
 # pull in platform toolchains we do not build against. Revisit when Linux/macOS become targets.
 keyring = { version = "3", features = ["windows-native"] }

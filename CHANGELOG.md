@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- **Shift + mute** switches Discord to your next microphone, and **Shift + deafen** to your next
+  headphones or speakers. Every device is included to start; turn off the ones you do not use in
+  **Settings → Audio devices**. A notification says which one is now in use.
 - Device firmware updates for the DS2000 rev A board, once a firmware release includes its image.
 
 ## [0.5.2] - 2026-10-29

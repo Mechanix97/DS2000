@@ -28,6 +28,7 @@ use {std::env::var, tokio::net::UnixStream};
 
 use crate::error::DiscordError;
 use crate::pipe_message::{HEADER_LEN, Opcode, PipeMessage, ResponseKind, error_message};
+use crate::voice_devices::{DeviceKind, VoiceDevices, parse_voice_devices};
 
 /// The account an RPC session is authenticated as, from the `AUTHENTICATE` reply.
 ///
@@ -386,6 +387,36 @@ impl IpcClient {
                 "SET_VOICE_SETTINGS",
                 nonce,
                 Some(json!({ "mute": mute, "deaf": deafen })),
+            )
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Reads the audio devices Discord offers and the ones it uses now.
+    ///
+    /// Asked for on demand rather than kept up to date: devices come and go with USB, and the list
+    /// is only needed when the user switches device or picks which ones to switch between.
+    pub async fn get_voice_devices(&self) -> Result<VoiceDevices, DiscordError> {
+        self.require_authenticated()?;
+        let payload = self
+            .request(|nonce| PipeMessage::command("GET_VOICE_SETTINGS", nonce, None))
+            .await?;
+        parse_voice_devices(&payload["data"])
+    }
+
+    /// Switches Discord's microphone or output to the device with `device_id`.
+    pub async fn set_voice_device(
+        &self,
+        kind: DeviceKind,
+        device_id: &str,
+    ) -> Result<(), DiscordError> {
+        self.require_authenticated()?;
+        self.request(|nonce| {
+            PipeMessage::command(
+                "SET_VOICE_SETTINGS",
+                nonce,
+                Some(json!({ kind.key(): { "device_id": device_id } })),
             )
         })
         .await?;

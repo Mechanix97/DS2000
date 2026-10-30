@@ -5,3 +5,4 @@ pub mod error;
 pub mod ipc;
 pub mod oauth;
 pub mod pipe_message;
+pub mod voice_devices;

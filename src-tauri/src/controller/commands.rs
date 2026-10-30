@@ -2,8 +2,9 @@ use crate::controller::Controller;
 use crate::coordinator::UiRefreshHandle;
 use crate::tray::{TRAY_ID, tray_menu};
 use common::rgb_update::{LedRgb, RGBConfig, RGBMode};
-use config::config::{UnseenReleaseNotes, log_dir};
+use config::config::{ChosenDevice, UnseenReleaseNotes, log_dir};
 use config::language::Language;
+use discord::voice_devices::{AudioDevice, DeviceKind};
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -199,6 +200,85 @@ pub async fn set_desktop_notifications(
         .update_desktop_notifications(enabled)
         .await;
     debug!("Desktop notifications: {enabled}");
+    Ok(())
+}
+
+/// One side of the audio devices section in Settings.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceChoices {
+    /// What Discord offers now. Empty while it is not connected.
+    pub available: Vec<AudioDevice>,
+    /// What Shift + the key switches between, in order, unplugged or not. Empty means all of
+    /// `available`.
+    pub chosen: Vec<ChosenDevice>,
+    /// Id of the system's default device, marked in the list.
+    pub system_default: Option<String>,
+}
+
+/// What the audio devices section in Settings shows.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceDeviceChoices {
+    /// False where the keyboard's Shift cannot be read (Wayland), so the shortcut cannot work.
+    pub shift_detectable: bool,
+    /// Whether Discord's device lists could be read.
+    pub connected: bool,
+    pub input: DeviceChoices,
+    pub output: DeviceChoices,
+}
+
+#[tauri::command]
+pub async fn voice_device_choices(
+    controller: State<'_, Arc<Mutex<Controller>>>,
+) -> Result<VoiceDeviceChoices, String> {
+    let controller = controller.lock().await;
+    let cycle = controller.config.voice_device_cycle().await;
+
+    let devices = if controller.discord_worker.is_connected() {
+        controller
+            .discord_worker
+            .voice_devices()
+            .await
+            .inspect_err(|err| warn!("Could not read Discord's audio devices: {err}"))
+            .ok()
+    } else {
+        None
+    };
+    let connected = devices.is_some();
+    let devices = devices.unwrap_or_default();
+
+    Ok(VoiceDeviceChoices {
+        shift_detectable: common::keyboard::shift_detectable(),
+        connected,
+        input: DeviceChoices {
+            available: devices.input.available,
+            chosen: cycle.input,
+            system_default: devices.input.system_default,
+        },
+        output: DeviceChoices {
+            available: devices.output.available,
+            chosen: cycle.output,
+            system_default: devices.output.system_default,
+        },
+    })
+}
+
+/// Stores the devices Shift + mute (input) or Shift + deafen (output) switches between.
+#[tauri::command]
+pub async fn set_voice_device_choices(
+    kind: DeviceKind,
+    chosen: Vec<ChosenDevice>,
+    controller: State<'_, Arc<Mutex<Controller>>>,
+) -> Result<(), String> {
+    let mut controller = controller.lock().await;
+    let mut cycle = controller.config.voice_device_cycle().await;
+    match kind {
+        DeviceKind::Input => cycle.input = chosen,
+        DeviceKind::Output => cycle.output = chosen,
+    }
+    controller.config.update_voice_device_cycle(cycle).await;
+    debug!("Voice devices to switch between updated ({})", kind.key());
     Ok(())
 }
 

@@ -1511,6 +1511,28 @@ input[type="range"]::-webkit-slider-thumb {
     border-bottom: 0;
 }
 
+.devices-intro {
+    margin: 0 0 var(--space-2);
+}
+
+.devices-kind {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-strong);
+}
+
+/* The system's default device: the same label Discord shows as a separate "Default" entry. */
+.device-default {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.setting-list > .setting-hint {
+    margin: var(--space-1) 0;
+}
+
 /* ===========================================================================
    About
    =========================================================================== */

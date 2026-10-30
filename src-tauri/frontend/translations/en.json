@@ -112,7 +112,17 @@
     "startMinimizedHint": "When Windows starts, goes straight to the tray.",
     "notificationsSection": "Notifications",
     "desktopNotifications": "Desktop notifications",
-    "desktopNotificationsHint": "When the window is closed, tells you if the device or Discord disconnects."
+    "desktopNotificationsHint": "When the window is closed, tells you if the device or Discord disconnects.",
+    "devicesSection": "Audio devices",
+    "devicesHint": "Hold Shift on your keyboard and press mute to switch Discord to the next input ticked here, or deafen for the next output. All are on to start; at least one of each stays on.",
+    "devicesInput": "Input",
+    "devicesOutput": "Output",
+    "devicesOffline": "Connect to Discord to see its devices.",
+    "devicesNone": "Discord lists no devices.",
+    "devicesUnplugged": "not connected",
+    "devicesUnsupported": "This session does not let DS2000 see whether Shift is held (Wayland), so the shortcut is not available.",
+    "devicesSaveFailed": "Could not save the devices",
+    "devicesSystemDefault": "Windows default"
   },
   "about": {
     "heading": "About",
@@ -236,6 +246,8 @@
     "discordAwaiting": {
       "title": "Authorise DS2000 in Discord",
       "body": "Discord is asking for your permission."
-    }
+    },
+    "inputDevice": "Input device",
+    "outputDevice": "Output device"
   }
 }
