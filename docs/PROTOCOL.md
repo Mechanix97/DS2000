@@ -86,7 +86,7 @@ revisions can at least tell each other apart.
 | `0x01` | Waveshare RP2350-Zero | `rp2350_zero` |
 | `0x02` | Raspberry Pi Pico 2 | `pico2` |
 | `0x03` | Raspberry Pi Pico (RP2040) | `pico` |
-| `0x10` | DS2000 rev A | (reserved, no environment yet) |
+| `0x10` | DS2000 rev A | `rev_a` |
 
 `0x00` is never assigned. The firmware sets the id per environment with `custom_board_id` in
 `platformio.ini`; add new boards to this table and to `Board` in `device_info.rs`. The application
