@@ -9,6 +9,10 @@ use serde_json::Value;
 
 use crate::error::DiscordError;
 
+/// Id of Discord's "Default" entry, which follows the system's default device. It is always the
+/// same hardware as another entry in the list, so switching to it changes nothing audible.
+const SYSTEM_DEFAULT_ID: &str = "default";
+
 /// Microphone or headphones.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -73,10 +77,14 @@ fn parse_device_list(side: &Value) -> Result<DeviceList, DiscordError> {
         .as_array()
         .ok_or(DiscordError::NoDataFound)?
         .iter()
-        // A device without an id cannot be selected, so it is not worth offering.
+        // A device without an id cannot be selected, so it is not worth offering. Nor is the
+        // system default: it duplicates a real device.
         .filter_map(|device| {
+            let id = device["id"]
+                .as_str()
+                .filter(|id| *id != SYSTEM_DEFAULT_ID)?;
             Some(AudioDevice {
-                id: device["id"].as_str()?.to_owned(),
+                id: id.to_owned(),
                 name: device["name"].as_str().unwrap_or_default().to_owned(),
             })
         })
@@ -158,8 +166,10 @@ mod tests {
         let devices = parse_voice_devices(&data).expect("parses");
 
         assert_eq!(devices.input.current, "default");
+        // The system default is left out: it is the same hardware as another entry.
+        assert_eq!(devices.input.available.len(), 1);
         assert_eq!(
-            devices.input.available[1],
+            devices.input.available[0],
             AudioDevice {
                 id: "{mic}".to_owned(),
                 name: "Desk mic".to_owned()
