@@ -8,6 +8,7 @@ use crate::credentials::{DISCORD_SCOPES, DiscordCredentials};
 use crate::error::DiscordError;
 use crate::ipc::{DiscordConnectionState, DiscordUser, IpcClient, IpcEvent};
 use crate::oauth;
+use crate::voice_channel::{ChannelMemory, Rejoin, VoiceChannel};
 use crate::voice_devices::{DeviceKind, VoiceDevices};
 use spawned_concurrency::message::Message;
 use spawned_concurrency::tasks::{Actor, ActorRef, ActorStart, Context, Handler, send_after};
@@ -15,7 +16,7 @@ use spawned_concurrency::{ActorError, Response, actor, protocol};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{Mutex, mpsc};
-use tokio::time::Duration;
+use tokio::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
 /// First delay after a failed connection attempt.
@@ -24,8 +25,9 @@ const RECONNECT_BACKOFF_MIN: Duration = Duration::from_millis(500);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
 use discord_state_protocol::{
-    AccessToken, Connect, DisconnectChannel, DiscordStatus, RefreshToken, SetCredentials,
-    SetVoiceDevice, SetVoiceSetting, Shutdown, VoiceDevices as GetVoiceDevices, VoiceSettings,
+    AccessToken, Connect, DisconnectChannel, DiscordStatus, RefreshToken, RejoinVoiceChannel,
+    SetCredentials, SetVoiceDevice, SetVoiceSetting, Shutdown, VoiceDevices as GetVoiceDevices,
+    VoiceSettings,
 };
 
 pub type DiscordStateHandler = ActorRef<DiscordState>;
@@ -37,6 +39,9 @@ pub trait DiscordStateProtocol: Send + Sync {
     fn connect(&self) -> Result<(), ActorError>;
     fn set_voice_setting(&self, mute: bool, deafen: bool) -> Result<(), ActorError>;
     fn disconnect_channel(&self) -> Result<(), ActorError>;
+    /// Shift + disconnect: joins the server channel left in the last few minutes, if any and if
+    /// the user is not in one.
+    fn rejoin_voice_channel(&self) -> Response<Result<Rejoin, DiscordError>>;
     /// Applies credentials entered at runtime, so connecting does not require a restart.
     fn set_credentials(&self, credentials: Option<DiscordCredentials>) -> Result<(), ActorError>;
     fn discord_status(&self) -> Response<DiscordConnectionState>;
@@ -122,6 +127,9 @@ pub struct DiscordState {
     reconnect_backoff: Duration,
     /// Guards against several reconnect timers piling up, which would defeat the backoff.
     reconnect_scheduled: bool,
+    /// The channel the user is in and the one they left, for Shift + disconnect. Kept across
+    /// reconnections: Discord restarting does not change which channel the user wants back.
+    channels: ChannelMemory,
     shutdown: bool,
 }
 
@@ -146,6 +154,7 @@ impl DiscordState {
             announced_running: None,
             reconnect_backoff: RECONNECT_BACKOFF_MIN,
             reconnect_scheduled: false,
+            channels: ChannelMemory::default(),
             shutdown: false,
         };
         let handle = state.start();
@@ -292,6 +301,8 @@ pub struct Connection {
     user: Option<DiscordUser>,
     tokens: (Option<String>, Option<String>),
     voice_settings: DiscordVoiceSettings,
+    /// The channel the user is in; `None` also when it could not be read.
+    voice_channel: Option<VoiceChannel>,
 }
 
 /// Runs the connect, handshake, authorise, authenticate and subscribe sequence.
@@ -337,11 +348,26 @@ async fn connect(
 
     let (mute, deafen) = client.get_voice_settings().await?;
 
+    // Only Shift + disconnect depends on these, so a failure leaves the rest working.
+    let voice_channel = match client.subscribe_voice_channel_select().await {
+        Ok(()) => client
+            .get_selected_voice_channel()
+            .await
+            .inspect_err(|err| warn!("Could not read the voice channel: {err}"))
+            .ok()
+            .flatten(),
+        Err(err) => {
+            warn!("Could not follow voice channels, Shift + disconnect will not work: {err}");
+            None
+        }
+    };
+
     Ok::<Connection, DiscordError>(Connection {
         client,
         user,
         tokens,
         voice_settings: DiscordVoiceSettings { mute, deafen },
+        voice_channel,
     })
     .map_err(ConnectFailure::from)
 }
@@ -444,6 +470,8 @@ impl DiscordState {
                     .observer
                     .send(DiscordWorkerEvent::UserChanged(connection.user));
                 self.update_voice_settings(connection.voice_settings).await;
+                self.channels
+                    .on_selected(connection.voice_channel, Instant::now());
             }
             Err(failure) => {
                 self.ipc_client.disconnect().await;
@@ -483,6 +511,9 @@ impl DiscordState {
                 debug!("Voice settings pushed by Discord — mute: {mute} deafen: {deafen}");
                 self.update_voice_settings(DiscordVoiceSettings { mute, deafen })
                     .await;
+            }
+            IpcEvent::VoiceChannel(channel) => {
+                self.channels.on_selected(channel, Instant::now());
             }
             IpcEvent::Disconnected => {
                 self.ipc_client.disconnect().await;
@@ -549,6 +580,23 @@ impl DiscordState {
         }
         if let Err(err) = self.ipc_client.select_voice_channel(None).await {
             warn!("Could not leave the voice channel: {err}");
+        }
+    }
+
+    #[request_handler]
+    async fn handle_rejoin_voice_channel(
+        &mut self,
+        _msg: RejoinVoiceChannel,
+        _ctx: &Context<Self>,
+    ) -> Result<Rejoin, DiscordError> {
+        match self.channels.rejoin(Instant::now()) {
+            Rejoin::Channel(channel) => {
+                let joined = self.ipc_client.join_voice_channel(&channel.id).await?;
+                // The event that follows records the channel as current; the reply only adds its
+                // name.
+                Ok(Rejoin::Channel(joined.unwrap_or(channel)))
+            }
+            other => Ok(other),
         }
     }
 
@@ -642,6 +690,7 @@ mod tests {
                 announced_running: None,
                 reconnect_backoff: RECONNECT_BACKOFF_MIN,
                 reconnect_scheduled: false,
+                channels: ChannelMemory::default(),
                 shutdown: false,
             },
             observed,

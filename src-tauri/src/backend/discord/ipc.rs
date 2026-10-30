@@ -28,6 +28,7 @@ use {std::env::var, tokio::net::UnixStream};
 
 use crate::error::DiscordError;
 use crate::pipe_message::{HEADER_LEN, Opcode, PipeMessage, ResponseKind, error_message};
+use crate::voice_channel::{VoiceChannel, parse_channel, parse_channel_select};
 use crate::voice_devices::{DeviceKind, VoiceDevices, parse_voice_devices};
 
 /// The account an RPC session is authenticated as, from the `AUTHENTICATE` reply.
@@ -93,6 +94,9 @@ const AUTHORIZE_TIMEOUT: Duration = Duration::from_secs(180);
 /// Event Discord pushes once subscribed. Carries the same payload as `GET_VOICE_SETTINGS`.
 pub const VOICE_SETTINGS_UPDATE: &str = "VOICE_SETTINGS_UPDATE";
 
+/// Event Discord pushes once subscribed, whenever the user joins, moves or leaves a voice channel.
+pub const VOICE_CHANNEL_SELECT: &str = "VOICE_CHANNEL_SELECT";
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum DiscordConnectionState {
     NotConnected,
@@ -109,6 +113,8 @@ pub enum IpcEvent {
         mute: bool,
         deafen: bool,
     },
+    /// The voice channel the user is in now; `None` once they left.
+    VoiceChannel(Option<VoiceChannel>),
     /// The pipe closed or failed. The state machine reconnects with backoff.
     Disconnected,
 }
@@ -368,6 +374,46 @@ impl IpcClient {
         Ok(())
     }
 
+    /// Subscribes to the user joining and leaving voice channels, for Shift + disconnect.
+    pub async fn subscribe_voice_channel_select(&self) -> Result<(), DiscordError> {
+        self.require_authenticated()?;
+        self.request(|nonce| {
+            PipeMessage::subscription("SUBSCRIBE", VOICE_CHANNEL_SELECT, nonce, None)
+        })
+        .await?;
+        debug!("Subscribed to {VOICE_CHANNEL_SELECT}");
+        Ok(())
+    }
+
+    /// The voice channel the user is in, if any.
+    pub async fn get_selected_voice_channel(&self) -> Result<Option<VoiceChannel>, DiscordError> {
+        self.require_authenticated()?;
+        let payload = self
+            .request(|nonce| PipeMessage::command("GET_SELECTED_VOICE_CHANNEL", nonce, None))
+            .await?;
+        Ok(parse_channel(&payload["data"]))
+    }
+
+    /// Joins a voice channel. Answers with the channel Discord joined, which carries its name.
+    ///
+    /// Without `force`, so Discord refuses rather than move the user out of a channel they are in.
+    pub async fn join_voice_channel(
+        &self,
+        channel_id: &str,
+    ) -> Result<Option<VoiceChannel>, DiscordError> {
+        self.require_authenticated()?;
+        let payload = self
+            .request(|nonce| {
+                PipeMessage::command(
+                    "SELECT_VOICE_CHANNEL",
+                    nonce,
+                    Some(json!({ "channel_id": channel_id })),
+                )
+            })
+            .await?;
+        Ok(parse_channel(&payload["data"]))
+    }
+
     /// Reads the current voice settings.
     ///
     /// Only used once, to seed the initial state after connecting: the response carries the
@@ -550,6 +596,13 @@ async fn read_loop(
                             }
                         }
                         Err(err) => warn!("Malformed {VOICE_SETTINGS_UPDATE} payload: {err}"),
+                    }
+                }
+                if event == VOICE_CHANNEL_SELECT {
+                    let channel = parse_channel_select(&payload["data"]);
+                    debug!("Voice channel selected: {channel:?}");
+                    if events.send(IpcEvent::VoiceChannel(channel)).is_err() {
+                        break;
                     }
                 }
             }

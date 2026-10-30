@@ -110,6 +110,8 @@ pub struct NotificationStrings {
     pub input_device: String,
     /// Title when Shift + deafen switched Discord's output; the body is the device's name.
     pub output_device: String,
+    /// Title when Shift + disconnect rejoined a voice channel; the body is the channel's name.
+    pub rejoined_channel: String,
 }
 
 #[derive(Deserialize)]
