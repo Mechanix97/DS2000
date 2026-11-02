@@ -9,6 +9,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- **Shift + disconnect** now also takes you back after someone else disconnected you from the
+  voice channel. Before, it only worked when you had left yourself.
+
 ## [0.6.0] - 2026-10-30
 
 Serial protocol 1: pairs with DS2000-Firmware 0.2.1.

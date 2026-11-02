@@ -28,7 +28,9 @@ use {std::env::var, tokio::net::UnixStream};
 
 use crate::error::DiscordError;
 use crate::pipe_message::{HEADER_LEN, Opcode, PipeMessage, ResponseKind, error_message};
-use crate::voice_channel::{VoiceChannel, parse_channel, parse_channel_select};
+use crate::voice_channel::{
+    VoiceChannel, is_disconnected_status, parse_channel, parse_channel_select,
+};
 use crate::voice_devices::{DeviceKind, VoiceDevices, parse_voice_devices};
 
 /// The account an RPC session is authenticated as, from the `AUTHENTICATE` reply.
@@ -97,6 +99,13 @@ pub const VOICE_SETTINGS_UPDATE: &str = "VOICE_SETTINGS_UPDATE";
 /// Event Discord pushes once subscribed, whenever the user joins, moves or leaves a voice channel.
 pub const VOICE_CHANNEL_SELECT: &str = "VOICE_CHANNEL_SELECT";
 
+/// Event Discord pushes once subscribed, whenever the client's voice connection changes state.
+///
+/// Needed because `VOICE_CHANNEL_SELECT` only follows what the user's own client selects: when a
+/// moderator disconnects the user, the selection is dropped without that event, and this one
+/// (state `DISCONNECTED`) is the only sign of it.
+pub const VOICE_CONNECTION_STATUS: &str = "VOICE_CONNECTION_STATUS";
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum DiscordConnectionState {
     NotConnected,
@@ -115,6 +124,9 @@ pub enum IpcEvent {
     },
     /// The voice channel the user is in now; `None` once they left.
     VoiceChannel(Option<VoiceChannel>),
+    /// The voice connection dropped. The user may have left, or been disconnected by someone
+    /// else; the state machine asks Discord which.
+    VoiceDisconnected,
     /// The pipe closed or failed. The state machine reconnects with backoff.
     Disconnected,
 }
@@ -385,6 +397,18 @@ impl IpcClient {
         Ok(())
     }
 
+    /// Subscribes to voice connection state changes, to notice the user being disconnected from a
+    /// channel by someone else.
+    pub async fn subscribe_voice_connection_status(&self) -> Result<(), DiscordError> {
+        self.require_authenticated()?;
+        self.request(|nonce| {
+            PipeMessage::subscription("SUBSCRIBE", VOICE_CONNECTION_STATUS, nonce, None)
+        })
+        .await?;
+        debug!("Subscribed to {VOICE_CONNECTION_STATUS}");
+        Ok(())
+    }
+
     /// The voice channel the user is in, if any.
     pub async fn get_selected_voice_channel(&self) -> Result<Option<VoiceChannel>, DiscordError> {
         self.require_authenticated()?;
@@ -602,6 +626,14 @@ async fn read_loop(
                     let channel = parse_channel_select(&payload["data"]);
                     debug!("Voice channel selected: {channel:?}");
                     if events.send(IpcEvent::VoiceChannel(channel)).is_err() {
+                        break;
+                    }
+                }
+                // Also pushed for every ping update, so only the one state that matters is
+                // logged and forwarded.
+                if event == VOICE_CONNECTION_STATUS && is_disconnected_status(&payload["data"]) {
+                    debug!("Voice connection status: DISCONNECTED");
+                    if events.send(IpcEvent::VoiceDisconnected).is_err() {
                         break;
                     }
                 }

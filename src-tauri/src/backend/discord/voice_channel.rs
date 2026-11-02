@@ -4,6 +4,11 @@
 //! joins, moves or leaves (`channel_id: null`), from the device or from Discord itself.
 //! `GET_SELECTED_VOICE_CHANNEL` and `SELECT_VOICE_CHANNEL` answer with the channel object, which
 //! also carries its name.
+//!
+//! `VOICE_CHANNEL_SELECT` only follows what the user's own client selects. When a moderator
+//! disconnects the user, Discord drops the selection without it, so the app would keep believing
+//! the user is still in the channel. `VOICE_CONNECTION_STATUS` going to `DISCONNECTED` is the sign
+//! of that, and the state machine then asks `GET_SELECTED_VOICE_CHANNEL` where the user really is.
 
 use serde_json::Value;
 use tokio::time::{Duration, Instant};
@@ -48,6 +53,11 @@ pub fn parse_channel(data: &Value) -> Option<VoiceChannel> {
     })
 }
 
+/// Whether a `VOICE_CONNECTION_STATUS` payload says the voice connection is gone.
+pub fn is_disconnected_status(data: &Value) -> bool {
+    data["state"].as_str() == Some("DISCONNECTED")
+}
+
 /// What Shift + disconnect should do.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Rejoin {
@@ -77,6 +87,12 @@ impl ChannelMemory {
                 }
             }
         }
+    }
+
+    /// Whether the user is in a voice channel, as far as the events said. Can be stale after a
+    /// disconnection from outside the user's client, so check with Discord before trusting it.
+    pub fn in_channel(&self) -> bool {
+        self.current.is_some()
     }
 
     pub fn rejoin(&self, now: Instant) -> Rejoin {
@@ -135,6 +151,32 @@ mod tests {
             Some("general".to_owned())
         );
         assert_eq!(parse_channel(&Value::Null), None);
+    }
+
+    #[test]
+    fn only_the_disconnected_state_counts() {
+        let status = |state: &str| json!({ "state": state, "hostname": "x", "pings": [] });
+        assert!(is_disconnected_status(&status("DISCONNECTED")));
+        assert!(!is_disconnected_status(&status("VOICE_DISCONNECTED")));
+        assert!(!is_disconnected_status(&status("VOICE_CONNECTED")));
+        assert!(!is_disconnected_status(&json!({})));
+    }
+
+    #[test]
+    fn a_disconnection_found_later_is_rejoined() {
+        // Disconnected by a moderator: no event said so, and asking Discord finds no channel.
+        let start = Instant::now();
+        let mut memory = ChannelMemory::default();
+        memory.on_selected(Some(guild_channel("a")), start);
+        assert!(memory.in_channel());
+
+        let found = start + Duration::from_secs(30);
+        memory.on_selected(None, found);
+        assert!(!memory.in_channel());
+        assert_eq!(
+            memory.rejoin(found + REJOIN_WINDOW),
+            Rejoin::Channel(guild_channel("a"))
+        );
     }
 
     #[test]
