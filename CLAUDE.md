@@ -168,6 +168,10 @@ failure there only disables this shortcut. `voice_channel::ChannelMemory` keeps 
 user is in and the last server channel they left (never a DM or group call: joining one rings the
 others), in memory only and across reconnections. Rejoining is `SELECT_VOICE_CHANNEL` without
 `force`, and only when the user is in no channel.
+`VOICE_CHANNEL_SELECT` does not fire when someone else (a moderator) disconnects the user, so the
+actor also subscribes to `VOICE_CONNECTION_STATUS`: on `DISCONNECTED` it asks
+`GET_SELECTED_VOICE_CHANNEL` where the user is. Shift + disconnect asks the same before refusing
+with "already in a channel", so a missed event costs only the window's start time.
 
 ### Configuration and secrets
 

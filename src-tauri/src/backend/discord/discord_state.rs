@@ -246,6 +246,20 @@ impl DiscordState {
             .send(DiscordWorkerEvent::RunningChanged { running });
     }
 
+    /// Asks Discord which voice channel the user is in and records it. Catches the user being
+    /// disconnected by someone else, which `VOICE_CHANNEL_SELECT` does not report.
+    async fn refresh_voice_channel(&mut self) {
+        match self.ipc_client.get_selected_voice_channel().await {
+            Ok(channel) => {
+                if channel.is_none() {
+                    info!("No longer in the voice channel: disconnected from outside this client");
+                }
+                self.channels.on_selected(channel, Instant::now());
+            }
+            Err(err) => warn!("Could not read the voice channel: {err}"),
+        }
+    }
+
     /// Schedules another attempt, doubling the delay up to the ceiling.
     fn schedule_reconnect(&mut self, ctx: &Context<Self>) {
         if self.shutdown || self.credentials.is_none() || self.reconnect_scheduled {
@@ -361,6 +375,11 @@ async fn connect(
             None
         }
     };
+    // Without it, a disconnection by a moderator is only noticed when Shift + disconnect is
+    // pressed, so the shortcut still works; the rejoin window then counts from the press.
+    if let Err(err) = client.subscribe_voice_connection_status().await {
+        warn!("Could not follow the voice connection: {err}");
+    }
 
     Ok::<Connection, DiscordError>(Connection {
         client,
@@ -515,6 +534,11 @@ impl DiscordState {
             IpcEvent::VoiceChannel(channel) => {
                 self.channels.on_selected(channel, Instant::now());
             }
+            IpcEvent::VoiceDisconnected => {
+                if self.channels.in_channel() {
+                    self.refresh_voice_channel().await;
+                }
+            }
             IpcEvent::Disconnected => {
                 self.ipc_client.disconnect().await;
                 self.announce_connection();
@@ -589,6 +613,10 @@ impl DiscordState {
         _msg: RejoinVoiceChannel,
         _ctx: &Context<Self>,
     ) -> Result<Rejoin, DiscordError> {
+        // A disconnection by someone else may have gone unnoticed: ask Discord before refusing.
+        if self.channels.in_channel() {
+            self.refresh_voice_channel().await;
+        }
         match self.channels.rejoin(Instant::now()) {
             Rejoin::Channel(channel) => {
                 let joined = self.ipc_client.join_voice_channel(&channel.id).await?;
