@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-01
+
+Serial protocol 1: pairs with DS2000-Firmware 0.2.1.
+
 ### Fixed
 
 - **Shift + disconnect** now also takes you back after someone else disconnected you from the
@@ -126,7 +130,8 @@ First public release. Serial protocol 1: pairs with DS2000-Firmware 0.2.0.
 - A Windows installer on every release, with its SHA-256.
 - **About → Check for updates** installs newer releases.
 
-[Unreleased]: https://github.com/Mechanix97/DS2000/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Mechanix97/DS2000/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Mechanix97/DS2000/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Mechanix97/DS2000/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/Mechanix97/DS2000/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Mechanix97/DS2000/compare/v0.5.0...v0.5.1
